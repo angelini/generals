@@ -1,0 +1,10 @@
+[package]
+name = "generals"
+version = "0.1.0"
+authors = ["Alex Angelini <alex.louis.angelini@gmail.com>"]
+
+[dependencies]
+clippy = "*"
+hlua = "0.1"
+piston_window = "0.50.0"
+regex = "0.1"
