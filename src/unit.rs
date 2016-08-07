@@ -13,6 +13,29 @@ pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
 pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 
+struct BoundingBox {
+    left: f64,
+    right: f64,
+    top: f64,
+    bottom: f64,
+}
+
+impl BoundingBox {
+    fn new(x: f64, y: f64, width: f64) -> BoundingBox {
+        BoundingBox {
+            left: x - (width / 2.0),
+            right: x + (width / 2.0),
+            top: y - (width / 2.0),
+            bottom: y + (width / 2.0),
+        }
+    }
+
+    fn overlaps(&self, other: &BoundingBox) -> bool {
+        self.left < other.right && self.right > other.left && self.top < other.bottom &&
+        self.bottom > other.top
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnitRole {
     Soldier,
@@ -195,10 +218,12 @@ impl Unit {
     }
 
     pub fn overlaps(&self, other: &Unit) -> bool {
-        self.x < (other.x + other.width) && (self.x + self.width) > other.x &&
-        self.y < (other.y + other.width) && (self.y + self.width) > other.y
+        self.bounding_box().overlaps(&other.bounding_box())
     }
 
+    fn bounding_box(&self) -> BoundingBox {
+        BoundingBox::new(self.x, self.y, self.width)
+    }
 
     fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
         let path_string = format!("lua/{}_{}.lua", prefix, suffix);
