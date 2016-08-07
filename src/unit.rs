@@ -113,6 +113,7 @@ pub struct Unit {
     pub y: f64,
     width: f64,
     speed: f64,
+    pub rotation: f64,
     pub role: UnitRole,
     pub state: UnitState,
     pub on_collision: Option<String>,
@@ -133,6 +134,7 @@ impl Unit {
             y: y,
             width: width,
             speed: speed,
+            rotation: 0.0,
             role: role,
             state: UnitState::Idle,
             on_collision: None,
@@ -213,8 +215,19 @@ impl Unit {
     }
 
     pub fn render<G: Graphics>(&self, _: &RenderArgs, c: &Context, g: &mut G) {
-        let square = rectangle::square(self.x, self.y, self.width);
-        rectangle(self.color, square, c.transform, g);
+        let transform = c.transform.trans(self.x, self.y).rot_rad(self.rotation);
+
+        let half_width = self.width / 2.0;
+        let square = rectangle::square(-half_width, -half_width, self.width);
+        rectangle(self.color, square, transform, g);
+
+        if self.role == UnitRole::Bullet {
+            return;
+        }
+
+        let nose_width = self.width / 5.0;
+        let nose = [-nose_width / 2.0, -half_width - nose_width / 2.0, nose_width, nose_width];
+        rectangle(self.color, nose, transform, g);
     }
 
     pub fn overlaps(&self, other: &Unit) -> bool {
