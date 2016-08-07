@@ -50,6 +50,7 @@ impl FromStr for UnitRole {
 pub enum UnitState {
     Idle,
     Moving(f64, f64),
+    Shooting(f64, f64),
     Dead,
 }
 
@@ -57,6 +58,7 @@ impl ToString for UnitState {
     fn to_string(&self) -> String {
         match *self {
             UnitState::Moving(x, y) => format!("moving({}, {})", x, y),
+            UnitState::Shooting(x, y) => format!("shooting({}, {})", x, y),
             UnitState::Dead => "dead".to_string(),
             UnitState::Idle => "idle".to_string(),
         }
@@ -76,6 +78,13 @@ impl FromStr for UnitState {
         }
 
         let re = Regex::new(r"moving\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        if let Some(caps) = re.captures(s) {
+            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
+            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
+            return Ok(UnitState::Moving(x, y));
+        };
+
+        let re = Regex::new(r"shooting\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
         if let Some(caps) = re.captures(s) {
             let x = f64::from_str(caps.name("x").unwrap()).unwrap();
             let y = f64::from_str(caps.name("y").unwrap()).unwrap();
@@ -192,6 +201,7 @@ impl Unit {
                 self.x += xdelta * (xdist / (xdist + ydist));
                 self.y += ydelta * (ydist / (xdist + ydist));
             }
+            UnitState::Shooting(x, y) => unimplemented!(),
             UnitState::Idle | _ => {}
         }
     }
