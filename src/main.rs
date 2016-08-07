@@ -19,6 +19,36 @@ const RED: Color = [1.0, 0.0, 0.0, 1.0];
 const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 
 #[derive(Clone, Debug, PartialEq)]
+enum UnitRole {
+    Soldier,
+    General,
+    Bullet,
+}
+
+impl ToString for UnitRole {
+    fn to_string(&self) -> String {
+        match *self {
+            UnitRole::Soldier => "soldier".to_string(),
+            UnitRole::General => "general".to_string(),
+            UnitRole::Bullet => "bullet".to_string(),
+        }
+    }
+}
+
+impl FromStr for UnitRole {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "soldier" => Ok(UnitRole::Soldier),
+            "general" => Ok(UnitRole::General),
+            "bullet" => Ok(UnitRole::Bullet),
+            _ => Err(s.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum UnitState {
     Idle,
     Moving(f64, f64),
@@ -58,26 +88,36 @@ impl FromStr for UnitState {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Unit {
     color: Color,
     x: f64,
     y: f64,
     width: f64,
     speed: f64,
+    role: UnitRole,
     state: UnitState,
+    on_collision: Option<String>,
     on_state_change: Option<String>,
 }
 
 impl Unit {
-    fn new(color: Color, x: f64, y: f64, width: f64, speed: f64) -> Unit {
+    fn new(role: UnitRole, x: f64, y: f64, width: f64, speed: f64) -> Unit {
+        let color = match role {
+            UnitRole::Soldier => BLUE,
+            UnitRole::General => RED,
+            UnitRole::Bullet => BLACK,
+        };
+
         Unit {
             color: color,
             x: x,
             y: y,
             width: width,
             speed: speed,
+            role: role,
             state: UnitState::Idle,
+            on_collision: None,
             on_state_change: None,
         }
     }
@@ -122,6 +162,11 @@ impl Unit {
         let square = rectangle::square(self.x, self.y, self.width);
         rectangle(self.color, square, c.transform, g);
     }
+
+    fn overlaps(&self, other: &Unit) -> bool {
+        self.x < (other.x + other.width) && (self.x + self.width) > other.x &&
+        self.y < (other.y + other.width) && (self.y + self.width) > other.y
+    }
 }
 
 struct State<'a> {
@@ -140,17 +185,8 @@ impl<'a> State<'a> {
     }
 
     fn update(&mut self, args: &UpdateArgs) {
-        let mut lua = &mut self.lua;
-
-        for unit in &mut self.units {
-            let original_state = unit.state.clone();
-            unit.update(args);
-
-            if original_state != unit.state && unit.on_state_change.is_some() {
-                let script = unit.on_state_change.clone().unwrap();
-                Self::exec_lua(&mut lua, unit, &script);
-            }
-        }
+        self.update_units(args);
+        self.detect_and_run_collisions();
 
         self.units.retain(|u| {
             match u.state {
@@ -160,10 +196,49 @@ impl<'a> State<'a> {
         });
     }
 
-    fn exec_lua(lua: &mut Lua, unit: &mut Unit, script: &str) {
+    fn update_units(&mut self, args: &UpdateArgs) {
+        let mut lua = &mut self.lua;
+
+        for unit in &mut self.units {
+            let original_state = unit.state.clone();
+            unit.update(args);
+
+            if original_state != unit.state && unit.on_state_change.is_some() {
+                let script = unit.on_state_change.clone().unwrap();
+                Self::exec_lua(&mut lua, unit, &script, None);
+            }
+        }
+    }
+
+    fn detect_and_run_collisions(&mut self) {
+        let units = self.units.clone();
+        let mut lua = &mut self.lua;
+
+        for unit in &mut self.units {
+            let collisions = units.iter()
+                .filter(|u| *u != unit)
+                .filter(|u| unit.overlaps(u))
+                .collect::<Vec<&Unit>>();
+
+            if let Some(script) = unit.on_collision.clone() {
+                for collision in collisions {
+                    Self::exec_lua(&mut lua, unit, &script, Some(collision));
+                }
+            }
+        }
+    }
+
+    fn exec_lua(lua: &mut Lua, unit: &mut Unit, script: &str, other: Option<&Unit>) {
         lua.set("x", unit.x);
         lua.set("y", unit.y);
+        lua.set("role", unit.role.to_string());
         lua.set("state", unit.state.to_string());
+
+        if let Some(other_unit) = other {
+            lua.set("other_role", other_unit.role.to_string());
+            lua.set("other_state", other_unit.state.to_string());
+        }
+
         lua.execute::<()>(script).unwrap();
 
         let new_state: String = lua.get("state").unwrap();
@@ -190,15 +265,15 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut units = vec![Unit::new(RED, 0.0, 0.0, 50.0, 50.0),
-                         Unit::new(BLUE, 300.0, 300.0, 25.0, 50.0),
-                         Unit::new(BLUE, 350.0, 350.0, 25.0, 50.0),
-                         Unit::new(BLACK, 350.0, 350.0, 5.0, 200.0)];
+    let mut units = vec![Unit::new(UnitRole::General, 0.0, 0.0, 50.0, 50.0),
+                         Unit::new(UnitRole::Soldier, 300.0, 300.0, 25.0, 50.0),
+                         Unit::new(UnitRole::Soldier, 350.0, 350.0, 25.0, 50.0),
+                         Unit::new(UnitRole::Bullet, 295.0, 295.0, 5.0, 200.0)];
 
     units[0].state = UnitState::Moving(100.0, 100.0);
     units[1].state = UnitState::Moving(0.0, 375.0);
     units[2].state = UnitState::Moving(300.0, 200.0);
-    units[3].state = UnitState::Moving(100.0, 100.0);
+    units[3].state = UnitState::Moving(0.0, 0.0);
 
     let move_back_on_idle = "
 if state == \"idle\" and x ~= 0.0 then
@@ -222,6 +297,18 @@ if state == \"idle\" then
 end
 ";
     units[3].on_state_change = Some(kill_on_idle.to_string());
+
+    let die_on_collision = "
+if other_role == \"bullet\" then
+  state = \"dead\"
+end
+";
+    units[0].on_collision = Some(die_on_collision.to_string());
+
+    let kill_on_collision = "
+state = \"dead\"
+";
+    units[3].on_collision = Some(kill_on_collision.to_string());
 
     let mut state = State::new(units);
 
