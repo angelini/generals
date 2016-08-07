@@ -3,6 +3,8 @@
 #![plugin(clippy)]
 
 extern crate hlua;
+extern crate nalgebra;
+extern crate ncollide;
 extern crate piston_window;
 extern crate regex;
 

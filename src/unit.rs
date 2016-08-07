@@ -1,3 +1,6 @@
+use nalgebra::{Isometry2, Vector1, Vector2};
+use ncollide::query::{self, Proximity};
+use ncollide::shape::{Cuboid};
 use piston_window::*;
 use std::fs::File;
 use std::io;
@@ -12,29 +15,6 @@ pub const BLUE: Color = [0.0, 0.0, 1.0, 1.0];
 pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
 pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
-
-struct BoundingBox {
-    left: f64,
-    right: f64,
-    top: f64,
-    bottom: f64,
-}
-
-impl BoundingBox {
-    fn new(x: f64, y: f64, width: f64) -> BoundingBox {
-        BoundingBox {
-            left: x - (width / 2.0),
-            right: x + (width / 2.0),
-            top: y - (width / 2.0),
-            bottom: y + (width / 2.0),
-        }
-    }
-
-    fn overlaps(&self, other: &BoundingBox) -> bool {
-        self.left < other.right && self.right > other.left && self.top < other.bottom &&
-        self.bottom > other.top
-    }
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnitRole {
@@ -114,6 +94,7 @@ pub struct Unit {
     width: f64,
     speed: f64,
     pub rotation: f64,
+    shape: Cuboid<Vector2<f64>>,
     pub role: UnitRole,
     pub state: UnitState,
     pub on_collision: Option<String>,
@@ -135,6 +116,7 @@ impl Unit {
             width: width,
             speed: speed,
             rotation: 0.0,
+            shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
             state: UnitState::Idle,
             on_collision: None,
@@ -231,11 +213,16 @@ impl Unit {
     }
 
     pub fn overlaps(&self, other: &Unit) -> bool {
-        self.bounding_box().overlaps(&other.bounding_box())
+        match query::proximity(&self.position(), &self.shape,
+                               &other.position(), &other.shape,
+                               0.0) {
+            Proximity::Intersecting => true,
+            Proximity::Disjoint | Proximity::WithinMargin => false,
+        }
     }
 
-    fn bounding_box(&self) -> BoundingBox {
-        BoundingBox::new(self.x, self.y, self.width)
+    fn position(&self) -> Isometry2<f64> {
+        Isometry2::new(Vector2::new(self.x, self.y), Vector1::new(self.rotation))
     }
 
     fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
