@@ -1,6 +1,6 @@
-use nalgebra::{Isometry2, Vector1, Vector2};
+use nalgebra::{Isometry2, Point2, Vector1, Vector2};
 use ncollide::query::{self, Proximity};
-use ncollide::shape::{Cuboid};
+use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
 use std::fs::File;
 use std::io;
@@ -8,6 +8,7 @@ use std::io::prelude::*;
 use std::str::FromStr;
 use std::path::Path;
 use regex::Regex;
+use uuid::Uuid;
 
 pub type Color = [f32; 4];
 
@@ -15,6 +16,7 @@ pub const BLUE: Color = [0.0, 0.0, 1.0, 1.0];
 pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
 pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
+pub const GRAY: Color = [0.0, 0.0, 0.0, 0.3];
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnitRole {
@@ -57,8 +59,8 @@ pub enum UnitState {
 impl ToString for UnitState {
     fn to_string(&self) -> String {
         match *self {
-            UnitState::Moving(x, y) => format!("moving({}, {})", x, y),
-            UnitState::Shooting(x, y) => format!("shooting({}, {})", x, y),
+            UnitState::Moving(x, y) => format!("moving({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Shooting(x, y) => format!("shooting({:.*}, {:.*})", 2, x, 2, y),
             UnitState::Dead => "dead".to_string(),
             UnitState::Idle => "idle".to_string(),
         }
@@ -97,6 +99,7 @@ impl FromStr for UnitState {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
+    pub id: Uuid,
     color: Color,
     pub x: f64,
     pub y: f64,
@@ -108,6 +111,7 @@ pub struct Unit {
     pub state: UnitState,
     pub on_collision: Option<String>,
     pub on_state_change: Option<String>,
+    pub on_enter_view: Option<String>,
 }
 
 impl Unit {
@@ -119,6 +123,7 @@ impl Unit {
         };
 
         Unit {
+            id: Uuid::new_v4(),
             color: color,
             x: x,
             y: y,
@@ -130,6 +135,7 @@ impl Unit {
             state: UnitState::Idle,
             on_collision: None,
             on_state_change: None,
+            on_enter_view: None,
         }
     }
 
@@ -141,6 +147,9 @@ impl Unit {
         }
         if let Ok(script) = Self::read_script("general", "on_state_change") {
             unit.on_state_change = Some(script);
+        }
+        if let Ok(script) = Self::read_script("general", "on_enter_view") {
+            unit.on_enter_view = Some(script);
         }
         unit
     }
@@ -154,6 +163,9 @@ impl Unit {
         if let Ok(script) = Self::read_script("soldier", "on_state_change") {
             unit.on_state_change = Some(script);
         }
+        if let Ok(script) = Self::read_script("soldier", "on_enter_view") {
+            unit.on_enter_view = Some(script);
+        }
         unit
     }
 
@@ -165,6 +177,9 @@ impl Unit {
         }
         if let Ok(script) = Self::read_script("bullet", "on_state_change") {
             unit.on_state_change = Some(script);
+        }
+        if let Ok(script) = Self::read_script("bullet", "on_enter_view") {
+            unit.on_enter_view = Some(script);
         }
         unit
     }
@@ -220,11 +235,29 @@ impl Unit {
         let nose_width = self.width / 5.0;
         let nose = [-nose_width / 2.0, -half_width - nose_width / 2.0, nose_width, nose_width];
         rectangle(self.color, nose, transform, g);
+
+        polygon(GRAY,
+                &[[0.0, half_width], [-150.0, -150.0], [150.0, -150.0]],
+                transform,
+                g);
     }
 
     pub fn overlaps(&self, other: &Unit) -> bool {
-        match query::proximity(&self.position(), &self.shape,
-                               &other.position(), &other.shape,
+        match query::proximity(&self.position(),
+                               &self.shape,
+                               &other.position(),
+                               &other.shape,
+                               0.0) {
+            Proximity::Intersecting => true,
+            Proximity::Disjoint | Proximity::WithinMargin => false,
+        }
+    }
+
+    pub fn can_see(&self, other: &Unit) -> bool {
+        match query::proximity(&self.position(),
+                               &self.fov(),
+                               &other.position(),
+                               &other.shape,
                                0.0) {
             Proximity::Intersecting => true,
             Proximity::Disjoint | Proximity::WithinMargin => false,
@@ -233,6 +266,12 @@ impl Unit {
 
     fn position(&self) -> Isometry2<f64> {
         Isometry2::new(Vector2::new(self.x, self.y), Vector1::new(self.rotation))
+    }
+
+    fn fov(&self) -> ConvexHull<Point2<f64>> {
+        ConvexHull::new(vec![Point2::new(0.0, self.width * 0.5),
+                             Point2::new(-150.0, -150.0),
+                             Point2::new(150.0, -150.0)])
     }
 
     fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
