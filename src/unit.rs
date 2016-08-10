@@ -2,6 +2,7 @@ use nalgebra::{Isometry2, Point2, Vector1, Vector2};
 use ncollide::query::{self, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
+use std::collections::{HashSet};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -11,6 +12,8 @@ use regex::Regex;
 use uuid::Uuid;
 
 pub type Color = [f32; 4];
+pub type Id = Uuid;
+pub type Ids = HashSet<Id>;
 
 pub const BLUE: Color = [0.0, 0.0, 1.0, 1.0];
 pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
@@ -99,7 +102,7 @@ impl FromStr for UnitState {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
-    pub id: Uuid,
+    pub id: Id,
     color: Color,
     pub x: f64,
     pub y: f64,
