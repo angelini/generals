@@ -217,12 +217,14 @@ impl<'a> State<'a> {
                       -> Vec<Delta> {
         let mut lua = lua;
 
+        // FIXME: does not fire event when unit dies
         match script {
             Some(ref script) => {
                 not_seen.iter()
-                    .map(|other_id| {
-                        let other = units.get(other_id).unwrap();
-                        Self::exec_lua(&mut lua, unit, script, Some(other))
+                    .map(|other_id| units.get(other_id))
+                    .filter(|other| other.is_some())
+                    .map(|other| {
+                        Self::exec_lua(&mut lua, unit, script, other)
                     })
                     .collect::<Vec<Delta>>()
             }
