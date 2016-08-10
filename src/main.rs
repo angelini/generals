@@ -16,7 +16,7 @@ use piston_window::*;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-use unit::{GREEN, Id, Ids, Unit, UnitState};
+use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
 
 #[derive(Debug)]
 struct Delta {
@@ -55,7 +55,7 @@ impl<'a> State<'a> {
         // println!(">> collision deltas: {:?}", deltas.len());
         self.apply_deltas(deltas);
 
-        let deltas = self.run_all_enter_views();
+        let deltas = self.run_all_views();
         // println!(">> view deltas: {:?}", deltas.len());
         self.apply_deltas(deltas);
 
@@ -100,7 +100,7 @@ impl<'a> State<'a> {
     fn run_unit_update(lua: &mut Lua, unit: &Unit) -> Option<Delta> {
         let mut lua = lua;
 
-        match unit.on_state_change {
+        match unit.get_handler(&EventType::StateChange) {
             Some(ref script) => Some(Self::exec_lua(&mut lua, unit, script, None)),
             None => None,
         }
@@ -110,7 +110,7 @@ impl<'a> State<'a> {
         for delta in deltas {
             let mut unit = self.units.get_mut(&delta.id).unwrap();
             println!("applying: {:?}", delta);
-            println!("to: {:?}", unit);
+            println!("to: {:?} {:?}", unit.id, unit.role);
             unit.state = delta.state;
         }
     }
@@ -128,7 +128,7 @@ impl<'a> State<'a> {
         let mut lua = lua;
         let unit = units.get(id).unwrap();
 
-        match unit.on_collision {
+        match unit.get_handler(&EventType::Collision) {
             Some(ref script) => {
                 Self::detect_collisions(units, unit)
                     .into_iter()
@@ -150,7 +150,7 @@ impl<'a> State<'a> {
             .collect()
     }
 
-    fn run_all_enter_views(&mut self) -> Vec<Delta> {
+    fn run_all_views(&mut self) -> Vec<Delta> {
         let lua = &mut self.lua;
         let units = &self.units;
         let view_cache = &mut self.view_cache;
@@ -158,39 +158,75 @@ impl<'a> State<'a> {
         self.units
             .keys()
             .flat_map(|id| {
-                let mut seen = view_cache.get_mut(id).unwrap();
-                let (deltas, new_seen) = Self::run_enter_views(lua, units, id, seen);
-                for new in new_seen {
-                    seen.insert(new);
+                let unit = units.get(id).unwrap();
+                let enter_script = unit.get_handler(&EventType::EnterView);
+                let exit_script = unit.get_handler(&EventType::ExitView);
+
+                if !(enter_script.is_some() || exit_script.is_some()) {
+                    return vec![];
                 }
-                deltas
+
+                let mut seen = view_cache.get_mut(id).unwrap();
+                let (mut enter_deltas, current_view) =
+                    Self::run_enter_views(lua, units, unit, seen, enter_script);
+
+                let not_seen = seen.difference(&current_view).cloned().collect::<Ids>();
+                let mut exit_deltas =
+                    Self::run_exit_views(lua, units, unit, &not_seen, exit_script);
+
+                seen.clear();
+                for view in current_view {
+                    seen.insert(view);
+                }
+
+                enter_deltas.append(&mut exit_deltas);
+                enter_deltas
             })
             .collect::<Vec<Delta>>()
     }
 
     fn run_enter_views(lua: &mut Lua,
                        units: &HashMap<Id, Unit>,
-                       id: &Id,
-                       seen: &mut Ids)
+                       unit: &Unit,
+                       seen: &Ids,
+                       script: Option<&str>)
                        -> (Vec<Delta>, Ids) {
         let mut lua = lua;
-        let unit = units.get(id).unwrap();
+        let current_view = Self::detect_views(units, unit);
 
-        match unit.on_enter_view {
+        match script {
             Some(ref script) => {
-                let mut new_seen = HashSet::new();
-                let deltas = Self::detect_views(units, unit)
-                    .into_iter()
+                let deltas = current_view.iter()
                     .filter(|view_id| !seen.contains(view_id))
-                    .map(|view_id| {
-                        let view = units.get(&view_id).unwrap();
-                        new_seen.insert(view_id);
-                        Self::exec_lua(&mut lua, unit, script, Some(view))
+                    .map(|other_id| {
+                        let other = units.get(other_id).unwrap();
+                        Self::exec_lua(&mut lua, unit, script, Some(other))
                     })
                     .collect::<Vec<Delta>>();
-                (deltas, new_seen)
+                (deltas, current_view)
             }
-            None => (vec![], HashSet::new()),
+            None => (vec![], current_view),
+        }
+    }
+
+    fn run_exit_views(lua: &mut Lua,
+                      units: &HashMap<Id, Unit>,
+                      unit: &Unit,
+                      not_seen: &Ids,
+                      script: Option<&str>)
+                      -> Vec<Delta> {
+        let mut lua = lua;
+
+        match script {
+            Some(ref script) => {
+                not_seen.iter()
+                    .map(|other_id| {
+                        let other = units.get(other_id).unwrap();
+                        Self::exec_lua(&mut lua, unit, script, Some(other))
+                    })
+                    .collect::<Vec<Delta>>()
+            }
+            None => vec![],
         }
     }
 

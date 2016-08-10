@@ -2,7 +2,7 @@ use nalgebra::{Isometry2, Point2, Vector1, Vector2};
 use ncollide::query::{self, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
-use std::collections::{HashSet};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -100,6 +100,69 @@ impl FromStr for UnitState {
     }
 }
 
+pub enum EventType {
+    Collision,
+    StateChange,
+    EnterView,
+    ExitView,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct EventHandlers {
+    on_collision: Option<String>,
+    on_state_change: Option<String>,
+    on_enter_view: Option<String>,
+    on_exit_view: Option<String>,
+}
+
+impl EventHandlers {
+    fn new() -> EventHandlers {
+        EventHandlers {
+            on_collision: None,
+            on_state_change: None,
+            on_enter_view: None,
+            on_exit_view: None,
+        }
+    }
+
+    fn load(&mut self, prefix: &str) {
+        if let Ok(script) = Self::read_script(prefix, "on_collision") {
+            self.on_collision = Some(script);
+        }
+        if let Ok(script) = Self::read_script(prefix, "on_state_change") {
+            self.on_state_change = Some(script);
+        }
+        if let Ok(script) = Self::read_script(prefix, "on_enter_view") {
+            self.on_enter_view = Some(script);
+        }
+        if let Ok(script) = Self::read_script(prefix, "on_exit_view") {
+            self.on_exit_view = Some(script);
+        }
+    }
+
+    fn get(&self, event_type: &EventType) -> Option<&str> {
+        let script = match *event_type {
+            EventType::Collision => self.on_collision.as_ref(),
+            EventType::StateChange => self.on_state_change.as_ref(),
+            EventType::EnterView => self.on_enter_view.as_ref(),
+            EventType::ExitView => self.on_exit_view.as_ref(),
+        };
+        match script {
+            Some(s) => Some(s.as_str()),
+            None => None
+        }
+    }
+
+    fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
+        let path_string = format!("lua/{}_{}.lua", prefix, suffix);
+        let path = Path::new(&path_string);
+        let mut file = try!(File::open(path));
+        let mut s = String::new();
+        try!(file.read_to_string(&mut s));
+        Ok(s)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
     pub id: Id,
@@ -112,9 +175,7 @@ pub struct Unit {
     shape: Cuboid<Vector2<f64>>,
     pub role: UnitRole,
     pub state: UnitState,
-    pub on_collision: Option<String>,
-    pub on_state_change: Option<String>,
-    pub on_enter_view: Option<String>,
+    event_handlers: EventHandlers,
 }
 
 impl Unit {
@@ -136,54 +197,25 @@ impl Unit {
             shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
             state: UnitState::Idle,
-            on_collision: None,
-            on_state_change: None,
-            on_enter_view: None,
+            event_handlers: EventHandlers::new(),
         }
     }
 
     pub fn new_general(x: f64, y: f64) -> Unit {
         let mut unit = Self::new(UnitRole::General, x, y, 50.0, 50.0);
-
-        if let Ok(script) = Self::read_script("general", "on_collision") {
-            unit.on_collision = Some(script);
-        }
-        if let Ok(script) = Self::read_script("general", "on_state_change") {
-            unit.on_state_change = Some(script);
-        }
-        if let Ok(script) = Self::read_script("general", "on_enter_view") {
-            unit.on_enter_view = Some(script);
-        }
+        unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
     pub fn new_soldier(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::Soldier, x, y, 25.0, 50.0);
-
-        if let Ok(script) = Self::read_script("soldier", "on_collision") {
-            unit.on_collision = Some(script);
-        }
-        if let Ok(script) = Self::read_script("soldier", "on_state_change") {
-            unit.on_state_change = Some(script);
-        }
-        if let Ok(script) = Self::read_script("soldier", "on_enter_view") {
-            unit.on_enter_view = Some(script);
-        }
+        let mut unit = Self::new(UnitRole::Soldier, x, y, 25.0, 100.0);
+        unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
     pub fn new_bullet(x: f64, y: f64) -> Unit {
         let mut unit = Self::new(UnitRole::Bullet, x, y, 5.0, 200.0);
-
-        if let Ok(script) = Self::read_script("bullet", "on_collision") {
-            unit.on_collision = Some(script);
-        }
-        if let Ok(script) = Self::read_script("bullet", "on_state_change") {
-            unit.on_state_change = Some(script);
-        }
-        if let Ok(script) = Self::read_script("bullet", "on_enter_view") {
-            unit.on_enter_view = Some(script);
-        }
+        unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
@@ -267,6 +299,10 @@ impl Unit {
         }
     }
 
+    pub fn get_handler(&self, event_type: &EventType) -> Option<&str> {
+        self.event_handlers.get(event_type)
+    }
+
     fn position(&self) -> Isometry2<f64> {
         Isometry2::new(Vector2::new(self.x, self.y), Vector1::new(self.rotation))
     }
@@ -275,14 +311,5 @@ impl Unit {
         ConvexHull::new(vec![Point2::new(0.0, self.width * 0.5),
                              Point2::new(-150.0, -150.0),
                              Point2::new(150.0, -150.0)])
-    }
-
-    fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
-        let path_string = format!("lua/{}_{}.lua", prefix, suffix);
-        let path = Path::new(&path_string);
-        let mut file = try!(File::open(path));
-        let mut s = String::new();
-        try!(file.read_to_string(&mut s));
-        Ok(s)
     }
 }
