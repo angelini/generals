@@ -2,7 +2,9 @@
 
 #![plugin(clippy)]
 
+extern crate env_logger;
 extern crate hlua;
+#[macro_use] extern crate log;
 extern crate nalgebra;
 extern crate ncollide;
 extern crate piston_window;
@@ -48,15 +50,21 @@ impl<'a> State<'a> {
 
     fn update(&mut self, args: &UpdateArgs) {
         let deltas = self.run_all_unit_updates(args);
-        // println!(">> unit update deltas: {:?}", deltas.len());
+        if !deltas.is_empty() {
+            info!(target: "deltas", "units ({})", deltas.len());
+        }
         self.apply_deltas(deltas);
 
         let deltas = self.run_all_collisions();
-        // println!(">> collision deltas: {:?}", deltas.len());
+        if !deltas.is_empty() {
+            info!(target: "deltas", "collisions ({})", deltas.len());
+        }
         self.apply_deltas(deltas);
 
         let deltas = self.run_all_views();
-        // println!(">> view deltas: {:?}", deltas.len());
+        if !deltas.is_empty() {
+            info!(target: "deltas", "views ({}):", deltas.len());
+        }
         self.apply_deltas(deltas);
 
         let dead_units = self.units
@@ -109,9 +117,11 @@ impl<'a> State<'a> {
     fn apply_deltas(&mut self, deltas: Vec<Delta>) {
         for delta in deltas {
             let mut unit = self.units.get_mut(&delta.id).unwrap();
-            println!("applying: {:?}", delta);
-            println!("to: {:?} {:?}", unit.id, unit.role);
-            unit.state = delta.state;
+
+            if unit.state != UnitState::Dead {
+                info!(target: "deltas", "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
+                unit.state = delta.state;
+            }
         }
     }
 
@@ -252,9 +262,7 @@ impl<'a> State<'a> {
         }
 
         lua.execute::<()>(script).unwrap();
-
         let new_state: String = lua.get("state").unwrap();
-        println!("lua.get(state): {:?}", new_state);
 
         match UnitState::from_str(&new_state) {
             Ok(state) => {
@@ -278,6 +286,7 @@ fn draw_units(window: &mut PistonWindow, event: Event, args: &RenderArgs, state:
 }
 
 fn main() {
+    env_logger::init().unwrap();
     let mut window: PistonWindow = WindowSettings::new("example", [400, 400])
         .exit_on_esc(true)
         .build()
@@ -286,7 +295,7 @@ fn main() {
     let mut units = vec![Unit::new_general(25.0, 25.0),
                          Unit::new_soldier(200.0, 300.0),
                          Unit::new_soldier(350.0, 350.0),
-                         Unit::new_bullet(290.0, 290.0)];
+                         Unit::new_bullet(400.0, 400.0)];
 
     units[0].rotation = 1.0;
 
@@ -297,6 +306,7 @@ fn main() {
 
     let mut state = State::new();
     for unit in units {
+        info!(target: "units", "{} {:?}", unit.id, unit.role);
         state.add_unit(unit)
     }
 

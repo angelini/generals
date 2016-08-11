@@ -208,13 +208,13 @@ impl Unit {
     }
 
     pub fn new_soldier(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::Soldier, x, y, 25.0, 100.0);
+        let mut unit = Self::new(UnitRole::Soldier, x, y, 25.0, 150.0);
         unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
     pub fn new_bullet(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::Bullet, x, y, 5.0, 200.0);
+        let mut unit = Self::new(UnitRole::Bullet, x, y, 5.0, 150.0);
         unit.event_handlers.load(&unit.role.to_string());
         unit
     }
