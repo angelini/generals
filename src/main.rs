@@ -4,7 +4,8 @@
 
 extern crate env_logger;
 extern crate hlua;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 extern crate nalgebra;
 extern crate ncollide;
 extern crate piston_window;
@@ -233,9 +234,7 @@ impl<'a> State<'a> {
                 not_seen.iter()
                     .map(|other_id| units.get(other_id))
                     .filter(|other| other.is_some())
-                    .map(|other| {
-                        Self::exec_lua(&mut lua, unit, script, other)
-                    })
+                    .map(|other| Self::exec_lua(&mut lua, unit, script, other))
                     .collect::<Vec<Delta>>()
             }
             None => vec![],
@@ -292,17 +291,19 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut units = vec![Unit::new_general(25.0, 25.0),
-                         Unit::new_soldier(200.0, 300.0),
-                         Unit::new_soldier(350.0, 350.0),
-                         Unit::new_bullet(400.0, 400.0)];
+    let mut units = vec![
+        Unit::new_general(25.0, 25.0),
+        Unit::new_soldier(200.0, 300.0),
+        Unit::new_soldier(350.0, 350.0),
+        Unit::new_bullet(400.0, 400.0),
+    ];
 
-    units[0].rotation = 1.0;
+    units[0].rotation = 0.0;
 
-    units[0].state = UnitState::Moving(100.0, 100.0);
+    units[0].state = UnitState::Shooting(300.0, -100.0);
     units[1].state = UnitState::Moving(0.0, 375.0);
     units[2].state = UnitState::Moving(300.0, 200.0);
-    units[3].state = UnitState::Moving(0.0, 0.0);
+    units[3].state = UnitState::Moving(300.0, 0.0);
 
     let mut state = State::new();
     for unit in units {

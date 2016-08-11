@@ -3,6 +3,7 @@ use ncollide::query::{self, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
 use std::collections::HashSet;
+use std::f64;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -149,7 +150,7 @@ impl EventHandlers {
         };
         match script {
             Some(s) => Some(s.as_str()),
-            None => None
+            None => None,
         }
     }
 
@@ -251,7 +252,35 @@ impl Unit {
                 self.x += xdelta * (xdist / (xdist + ydist));
                 self.y += ydelta * (ydist / (xdist + ydist));
             }
-            UnitState::Shooting(x, y) => unimplemented!(),
+            UnitState::Shooting(x, y) => {
+                let dx = x - self.x;
+                let dy = y - self.y;
+
+                let mut dest_rotation = (dy.atan2(dx) + 0.5 * f64::consts::PI) %
+                                    (2.0 * f64::consts::PI);
+                let curr_rotation = self.rotation % (2.0 * f64::consts::PI);
+
+                if dest_rotation < 0.0 {
+                    dest_rotation += 2.0 * f64::consts::PI;
+                }
+
+                if dest_rotation < curr_rotation + args.dt &&
+                   dest_rotation > curr_rotation - args.dt {
+                    self.rotation = dest_rotation;
+                    self.state = UnitState::Idle;
+                    return;
+                }
+
+                let delta = dest_rotation - curr_rotation;
+                if delta > 0.0 && delta < f64::consts::PI {
+                    self.rotation += args.dt;
+                } else {
+                    self.rotation -= args.dt;
+                    if self.rotation < 0.0 {
+                        self.rotation += 2.0 * f64::consts::PI;
+                    }
+                }
+            }
             UnitState::Idle | _ => {}
         }
     }
