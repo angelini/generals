@@ -13,25 +13,19 @@ extern crate regex;
 extern crate time;
 extern crate uuid;
 
+mod interpreter;
 mod unit;
 
-use hlua::Lua;
 use piston_window::*;
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
 
+use interpreter::{Delta, Interpreter};
 use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
 
 const BILLION: u64 = 1000000000;
 
-#[derive(Debug)]
-struct Delta {
-    id: Id,
-    state: UnitState,
-}
-
 struct State<'a> {
-    lua: Lua<'a>,
+    interpreter: Interpreter<'a>,
     units: HashMap<Id, Unit>,
     collision_cache: HashMap<Id, Ids>,
     view_cache: HashMap<Id, Ids>,
@@ -39,10 +33,8 @@ struct State<'a> {
 
 impl<'a> State<'a> {
     fn new() -> State<'a> {
-        let mut lua = Lua::new();
-        lua.openlibs();
         State {
-            lua: lua,
+            interpreter: Interpreter::new(),
             units: HashMap::new(),
             collision_cache: HashMap::new(),
             view_cache: HashMap::new(),
@@ -96,7 +88,7 @@ impl<'a> State<'a> {
     }
 
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
-        let lua = &mut self.lua;
+        let interpreter = &mut self.interpreter;
         let mut changed = HashSet::new();
 
         for unit in self.units.values_mut() {
@@ -111,23 +103,21 @@ impl<'a> State<'a> {
         self.units
             .iter()
             .filter(|&(id, _)| changed.contains(id))
-            .map(|(_, unit)| Self::run_unit_update(lua, unit))
+            .map(|(_, unit)| Self::run_unit_update(interpreter, unit))
             .filter(|u| u.is_some())
             .map(|u| u.unwrap())
             .collect::<Vec<Delta>>()
     }
 
-    fn run_unit_update(lua: &mut Lua, unit: &Unit) -> Option<Delta> {
-        let mut lua = lua;
-
+    fn run_unit_update(interpreter: &mut Interpreter, unit: &Unit) -> Option<Delta> {
         match unit.get_handler(&EventType::StateChange) {
-            Some(ref script) => Some(Self::exec_lua(&mut lua, unit, script, None)),
+            Some(ref script) => Some(interpreter.exec(unit, script, None)),
             None => None,
         }
     }
 
     fn run_all_collisions(&mut self) -> Vec<Delta> {
-        let lua = &mut self.lua;
+        let interpreter = &mut self.interpreter;
         let units = &self.units;
         let collision_cache = &mut self.collision_cache;
 
@@ -142,7 +132,8 @@ impl<'a> State<'a> {
                 }
 
                 let mut collides = collision_cache.get_mut(id).unwrap();
-                let (deltas, current_collides) = Self::run_collisions(lua, units, unit, collides, script);
+                let (deltas, current_collides) =
+                    Self::run_collisions(interpreter, units, unit, collides, script);
 
                 collides.clear();
                 for collide in current_collides {
@@ -154,13 +145,12 @@ impl<'a> State<'a> {
             .collect::<Vec<Delta>>()
     }
 
-    fn run_collisions(lua: &mut Lua,
+    fn run_collisions(interpreter: &mut Interpreter,
                       units: &HashMap<Id, Unit>,
                       unit: &Unit,
                       collides: &Ids,
                       script: Option<&str>)
                       -> (Vec<Delta>, Ids) {
-        let mut lua = lua;
         let current_collides = Self::detect_collisions(units, unit);
 
         match script {
@@ -169,17 +159,17 @@ impl<'a> State<'a> {
                     .filter(|collide_id| !collides.contains(collide_id))
                     .map(|collide_id| {
                         let collide = units.get(collide_id).unwrap();
-                        Self::exec_lua(&mut lua, unit, script, Some(collide))
+                        interpreter.exec(unit, script, Some(collide))
                     })
                     .collect::<Vec<Delta>>();
                 (deltas, current_collides)
             }
-            None => (vec![], current_collides)
+            None => (vec![], current_collides),
         }
     }
 
     fn run_all_views(&mut self) -> Vec<Delta> {
-        let lua = &mut self.lua;
+        let interpreter = &mut self.interpreter;
         let units = &self.units;
         let view_cache = &mut self.view_cache;
 
@@ -196,11 +186,11 @@ impl<'a> State<'a> {
 
                 let mut seen = view_cache.get_mut(id).unwrap();
                 let (mut enter_deltas, current_view) =
-                    Self::run_enter_views(lua, units, unit, seen, enter_script);
+                    Self::run_enter_views(interpreter, units, unit, seen, enter_script);
 
                 let not_seen = seen.difference(&current_view).cloned().collect::<Ids>();
                 let mut exit_deltas =
-                    Self::run_exit_views(lua, units, unit, &not_seen, exit_script);
+                    Self::run_exit_views(interpreter, units, unit, &not_seen, exit_script);
 
                 seen.clear();
                 for view in current_view {
@@ -213,13 +203,12 @@ impl<'a> State<'a> {
             .collect::<Vec<Delta>>()
     }
 
-    fn run_enter_views(lua: &mut Lua,
+    fn run_enter_views(interpreter: &mut Interpreter,
                        units: &HashMap<Id, Unit>,
                        unit: &Unit,
                        seen: &Ids,
                        script: Option<&str>)
                        -> (Vec<Delta>, Ids) {
-        let mut lua = lua;
         let current_views = Self::detect_views(units, unit);
 
         match script {
@@ -228,7 +217,7 @@ impl<'a> State<'a> {
                     .filter(|view_id| !seen.contains(view_id))
                     .map(|view_id| {
                         let other = units.get(view_id).unwrap();
-                        Self::exec_lua(&mut lua, unit, script, Some(other))
+                        interpreter.exec(unit, script, Some(other))
                     })
                     .collect::<Vec<Delta>>();
                 (deltas, current_views)
@@ -237,21 +226,19 @@ impl<'a> State<'a> {
         }
     }
 
-    fn run_exit_views(lua: &mut Lua,
+    fn run_exit_views(interpreter: &mut Interpreter,
                       units: &HashMap<Id, Unit>,
                       unit: &Unit,
                       not_seen: &Ids,
                       script: Option<&str>)
                       -> Vec<Delta> {
-        let mut lua = lua;
-
         // FIXME: does not fire event when unit dies
         match script {
             Some(ref script) => {
                 not_seen.iter()
                     .map(|other_id| units.get(other_id))
                     .filter(|other| other.is_some())
-                    .map(|other| Self::exec_lua(&mut lua, unit, script, other))
+                    .map(|other| interpreter.exec(unit, script, other))
                     .collect::<Vec<Delta>>()
             }
             None => vec![],
@@ -282,31 +269,6 @@ impl<'a> State<'a> {
                 info!(target: "deltas", "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
                 unit.state = delta.state;
             }
-        }
-    }
-
-    fn exec_lua(lua: &mut Lua, unit: &Unit, script: &str, other: Option<&Unit>) -> Delta {
-        lua.set("x", unit.x);
-        lua.set("y", unit.y);
-        lua.set("role", unit.role.to_string());
-        lua.set("state", unit.state.to_string());
-
-        if let Some(other_unit) = other {
-            lua.set("other_role", other_unit.role.to_string());
-            lua.set("other_state", other_unit.state.to_string());
-        }
-
-        lua.execute::<()>(script).unwrap();
-        let new_state: String = lua.get("state").unwrap();
-
-        match UnitState::from_str(&new_state) {
-            Ok(state) => {
-                Delta {
-                    id: unit.id,
-                    state: state,
-                }
-            }
-            Err(_) => panic!("Invalid state: {}", new_state),
         }
     }
 }

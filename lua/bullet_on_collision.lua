@@ -1,1 +1,1 @@
-state = "dead"
+self["state"] = "dead"

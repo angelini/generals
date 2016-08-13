@@ -1,3 +1,3 @@
-if other_role == "bullet" then
-  state = "dead"
+if other["role"] == "bullet" then
+   self["state"] = "dead"
 end

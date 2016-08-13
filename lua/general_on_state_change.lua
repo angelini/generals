@@ -1,3 +1,3 @@
-if state == "idle" and x ~= 200.0 then
-  state = "moving(200.0, 200.0)"
+if self["state"] == "idle" and self["x"] ~= 200 then
+   self["state"] = "moving(200.0, 200.0)"
 end

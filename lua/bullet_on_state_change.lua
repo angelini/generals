@@ -1,3 +1,3 @@
-if state == "idle" then
-  state = "dead"
+if self["state"] == "idle" then
+   self["state"] = "dead"
 end
