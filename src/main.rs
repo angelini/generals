@@ -33,6 +33,7 @@ struct Delta {
 struct State<'a> {
     lua: Lua<'a>,
     units: HashMap<Id, Unit>,
+    collision_cache: HashMap<Id, Ids>,
     view_cache: HashMap<Id, Ids>,
 }
 
@@ -43,11 +44,13 @@ impl<'a> State<'a> {
         State {
             lua: lua,
             units: HashMap::new(),
+            collision_cache: HashMap::new(),
             view_cache: HashMap::new(),
         }
     }
 
     fn add_unit(&mut self, unit: Unit) {
+        self.collision_cache.insert(unit.id, HashSet::new());
         self.view_cache.insert(unit.id, HashSet::new());
         self.units.insert(unit.id, unit);
     }
@@ -123,50 +126,56 @@ impl<'a> State<'a> {
         }
     }
 
-    fn apply_deltas(&mut self, deltas: Vec<Delta>) {
-        for delta in deltas {
-            let mut unit = self.units.get_mut(&delta.id).unwrap();
-
-            if unit.state != UnitState::Dead {
-                info!(target: "deltas", "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
-                unit.state = delta.state;
-            }
-        }
-    }
-
     fn run_all_collisions(&mut self) -> Vec<Delta> {
         let lua = &mut self.lua;
         let units = &self.units;
+        let collision_cache = &mut self.collision_cache;
+
         self.units
             .keys()
-            .flat_map(|key| Self::run_collisions(lua, units, key))
+            .flat_map(|id| {
+                let unit = units.get(id).unwrap();
+                let script = unit.get_handler(&EventType::Collision);
+
+                if !script.is_some() {
+                    return vec![];
+                }
+
+                let mut collides = collision_cache.get_mut(id).unwrap();
+                let (deltas, current_collides) = Self::run_collisions(lua, units, unit, collides, script);
+
+                collides.clear();
+                for collide in current_collides {
+                    collides.insert(collide);
+                }
+
+                deltas
+            })
             .collect::<Vec<Delta>>()
     }
 
-    fn run_collisions(lua: &mut Lua, units: &HashMap<Id, Unit>, id: &Id) -> Vec<Delta> {
+    fn run_collisions(lua: &mut Lua,
+                      units: &HashMap<Id, Unit>,
+                      unit: &Unit,
+                      collides: &Ids,
+                      script: Option<&str>)
+                      -> (Vec<Delta>, Ids) {
         let mut lua = lua;
-        let unit = units.get(id).unwrap();
+        let current_collides = Self::detect_collisions(units, unit);
 
-        match unit.get_handler(&EventType::Collision) {
+        match script {
             Some(ref script) => {
-                Self::detect_collisions(units, unit)
-                    .into_iter()
+                let deltas = current_collides.iter()
+                    .filter(|collide_id| !collides.contains(collide_id))
                     .map(|collide_id| {
-                        let collision = units.get(&collide_id).unwrap();
-                        Self::exec_lua(&mut lua, unit, script, Some(collision))
+                        let collide = units.get(collide_id).unwrap();
+                        Self::exec_lua(&mut lua, unit, script, Some(collide))
                     })
-                    .collect::<Vec<Delta>>()
+                    .collect::<Vec<Delta>>();
+                (deltas, current_collides)
             }
-            None => vec![],
+            None => (vec![], current_collides)
         }
-    }
-
-    fn detect_collisions(units: &HashMap<Id, Unit>, unit: &Unit) -> Ids {
-        units.iter()
-            .filter(|&(id, _)| &unit.id != id)
-            .filter(|&(_, u)| unit.overlaps(u))
-            .map(|(collide_id, _)| *collide_id)
-            .collect()
     }
 
     fn run_all_views(&mut self) -> Vec<Delta> {
@@ -211,20 +220,20 @@ impl<'a> State<'a> {
                        script: Option<&str>)
                        -> (Vec<Delta>, Ids) {
         let mut lua = lua;
-        let current_view = Self::detect_views(units, unit);
+        let current_views = Self::detect_views(units, unit);
 
         match script {
             Some(ref script) => {
-                let deltas = current_view.iter()
+                let deltas = current_views.iter()
                     .filter(|view_id| !seen.contains(view_id))
-                    .map(|other_id| {
-                        let other = units.get(other_id).unwrap();
+                    .map(|view_id| {
+                        let other = units.get(view_id).unwrap();
                         Self::exec_lua(&mut lua, unit, script, Some(other))
                     })
                     .collect::<Vec<Delta>>();
-                (deltas, current_view)
+                (deltas, current_views)
             }
-            None => (vec![], current_view),
+            None => (vec![], current_views),
         }
     }
 
@@ -249,12 +258,31 @@ impl<'a> State<'a> {
         }
     }
 
+    fn detect_collisions(units: &HashMap<Id, Unit>, unit: &Unit) -> Ids {
+        units.iter()
+            .filter(|&(id, _)| &unit.id != id)
+            .filter(|&(_, u)| unit.overlaps(u))
+            .map(|(collide_id, _)| *collide_id)
+            .collect()
+    }
+
     fn detect_views(units: &HashMap<Id, Unit>, unit: &Unit) -> Ids {
         units.iter()
             .filter(|&(id, _)| &unit.id != id)
             .filter(|&(_, u)| unit.can_see(u))
             .map(|(view_id, _)| *view_id)
             .collect()
+    }
+
+    fn apply_deltas(&mut self, deltas: Vec<Delta>) {
+        for delta in deltas {
+            let mut unit = self.units.get_mut(&delta.id).unwrap();
+
+            if unit.state != UnitState::Dead {
+                info!(target: "deltas", "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
+                unit.state = delta.state;
+            }
+        }
     }
 
     fn exec_lua(lua: &mut Lua, unit: &Unit, script: &str, other: Option<&Unit>) -> Delta {
