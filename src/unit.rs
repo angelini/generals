@@ -257,7 +257,7 @@ impl Unit {
                 let dy = y - self.y;
 
                 let mut dest_rotation = (dy.atan2(dx) + 0.5 * f64::consts::PI) %
-                                    (2.0 * f64::consts::PI);
+                                        (2.0 * f64::consts::PI);
                 let curr_rotation = self.rotation % (2.0 * f64::consts::PI);
 
                 if dest_rotation < 0.0 {

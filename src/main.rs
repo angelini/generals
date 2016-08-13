@@ -10,6 +10,7 @@ extern crate nalgebra;
 extern crate ncollide;
 extern crate piston_window;
 extern crate regex;
+extern crate time;
 extern crate uuid;
 
 mod unit;
@@ -20,6 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
+
+const BILLION: u64 = 1000000000;
 
 #[derive(Debug)]
 struct Delta {
@@ -50,6 +53,8 @@ impl<'a> State<'a> {
     }
 
     fn update(&mut self, args: &UpdateArgs) {
+        let time_start = time::precise_time_ns();
+
         let deltas = self.run_all_unit_updates(args);
         if !deltas.is_empty() {
             info!(target: "deltas", "units ({})", deltas.len());
@@ -64,7 +69,7 @@ impl<'a> State<'a> {
 
         let deltas = self.run_all_views();
         if !deltas.is_empty() {
-            info!(target: "deltas", "views ({}):", deltas.len());
+            info!(target: "deltas", "views ({})", deltas.len());
         }
         self.apply_deltas(deltas);
 
@@ -82,6 +87,9 @@ impl<'a> State<'a> {
         for dead_unit in dead_units {
             self.units.remove(&dead_unit);
         }
+
+        info!(target: "timing", "update {:.*}", 5,
+              (time::precise_time_ns() - time_start) as f64 / BILLION as f64);
     }
 
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
