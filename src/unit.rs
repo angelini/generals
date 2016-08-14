@@ -1,5 +1,5 @@
 use nalgebra::{Isometry2, Point2, Vector1, Vector2};
-use ncollide::query::{self, Proximity};
+use ncollide::query::{self, PointQuery, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
 use std::collections::HashSet;
@@ -55,16 +55,18 @@ impl FromStr for UnitRole {
 #[derive(Clone, Debug, PartialEq)]
 pub enum UnitState {
     Idle,
-    Moving(f64, f64),
-    Shooting(f64, f64),
+    Move(f64, f64),
+    Aim(f64, f64),
+    Shoot(f64, f64),
     Dead,
 }
 
 impl ToString for UnitState {
     fn to_string(&self) -> String {
         match *self {
-            UnitState::Moving(x, y) => format!("moving({:.*}, {:.*})", 2, x, 2, y),
-            UnitState::Shooting(x, y) => format!("shooting({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Move(x, y) => format!("move({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Aim(x, y) => format!("aim({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Shoot(x, y) => format!("shoot({:.*}, {:.*})", 2, x, 2, y),
             UnitState::Dead => "dead".to_string(),
             UnitState::Idle => "idle".to_string(),
         }
@@ -83,18 +85,25 @@ impl FromStr for UnitState {
             return Ok(UnitState::Idle);
         }
 
-        let re = Regex::new(r"moving\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        let re = Regex::new(r"move\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
         if let Some(caps) = re.captures(s) {
             let x = f64::from_str(caps.name("x").unwrap()).unwrap();
             let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Moving(x, y));
+            return Ok(UnitState::Move(x, y));
         };
 
-        let re = Regex::new(r"shooting\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        let re = Regex::new(r"aim\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
         if let Some(caps) = re.captures(s) {
             let x = f64::from_str(caps.name("x").unwrap()).unwrap();
             let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Moving(x, y));
+            return Ok(UnitState::Aim(x, y));
+        };
+
+        let re = Regex::new(r"shoot\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        if let Some(caps) = re.captures(s) {
+            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
+            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
+            return Ok(UnitState::Shoot(x, y));
         };
 
         Err(s.to_string())
@@ -176,6 +185,7 @@ pub struct Unit {
     shape: Cuboid<Vector2<f64>>,
     pub role: UnitRole,
     pub state: UnitState,
+    state_queue: Vec<UnitState>,
     event_handlers: EventHandlers,
 }
 
@@ -198,6 +208,7 @@ impl Unit {
             shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
             state: UnitState::Idle,
+            state_queue: Vec::new(),
             event_handlers: EventHandlers::new(),
         }
     }
@@ -222,37 +233,27 @@ impl Unit {
 
     pub fn update(&mut self, args: &UpdateArgs) {
         match self.state {
-            UnitState::Moving(x, y) => {
+            UnitState::Move(x, y) => {
                 let dist = self.speed * args.dt;
 
                 if x < self.x + dist && x > self.x - dist && y < self.y + dist &&
                    y > self.y - dist {
                     self.x = x;
                     self.y = y;
-                    self.state = UnitState::Idle;
+
+                    let original_state = self.state.clone();
+                    self.state = self.next_state();
+                    info!(target: "unit-state",
+                             "{:?} {:?} -> {:?}", self.role, original_state, self.state);
+
                     return;
                 }
 
-                let (xdist, xdelta) = if x > self.x {
-                    (x - self.x, dist)
-                } else if x < self.x {
-                    (self.x - x, -dist)
-                } else {
-                    (0.0, 0.0)
-                };
-
-                let (ydist, ydelta) = if y > self.y {
-                    (y - self.y, dist)
-                } else if y < self.y {
-                    (self.y - y, -dist)
-                } else {
-                    (0.0, 0.0)
-                };
-
-                self.x += xdelta * (xdist / (xdist + ydist));
-                self.y += ydelta * (ydist / (xdist + ydist));
+                let (new_x, new_y) = self.move_towards(x, y, args.dt);
+                self.x += new_x;
+                self.y += new_y;
             }
-            UnitState::Shooting(x, y) => {
+            UnitState::Aim(x, y) => {
                 let dx = x - self.x;
                 let dy = y - self.y;
 
@@ -267,7 +268,18 @@ impl Unit {
                 if dest_rotation < curr_rotation + args.dt &&
                    dest_rotation > curr_rotation - args.dt {
                     self.rotation = dest_rotation;
-                    self.state = UnitState::Idle;
+
+                    if self.can_see_point(x, y) {
+                        let original_state = self.state.clone();
+                        self.state = self.next_state();
+                        info!(target: "unit-state",
+                            "{:?} {:?} -> {:?}", self.role, original_state, self.state);
+                    } else {
+                        let (new_x, new_y) = self.move_towards(x, y, args.dt);
+                        self.x += new_x;
+                        self.y += new_y;
+                    }
+
                     return;
                 }
 
@@ -280,6 +292,15 @@ impl Unit {
                         self.rotation += 2.0 * f64::consts::PI;
                     }
                 }
+            }
+            UnitState::Shoot(x, y) => {
+                if !self.can_see_point(x, y) {
+                    self.state = UnitState::Aim(x, y);
+                    self.state_queue.push(UnitState::Shoot(x, y));
+                    return;
+                }
+                println!("SHOOT!!!!!");
+                self.state = self.next_state();
             }
             UnitState::Idle | _ => {}
         }
@@ -332,6 +353,10 @@ impl Unit {
         self.event_handlers.get(event_type)
     }
 
+    fn can_see_point(&self, x: f64, y: f64) -> bool {
+        self.fov().contains_point(&self.position(), &Point2::new(x, y))
+    }
+
     fn position(&self) -> Isometry2<f64> {
         Isometry2::new(Vector2::new(self.x, self.y), Vector1::new(self.rotation))
     }
@@ -340,5 +365,31 @@ impl Unit {
         ConvexHull::new(vec![Point2::new(0.0, self.width * 0.5),
                              Point2::new(-150.0, -150.0),
                              Point2::new(150.0, -150.0)])
+    }
+
+    fn next_state(&mut self) -> UnitState {
+        self.state_queue.pop().unwrap_or(UnitState::Idle)
+    }
+
+    fn move_towards(&self, x: f64, y: f64, dt: f64) -> (f64, f64) {
+        let dist = self.speed * dt;
+
+        let (xdist, xdelta) = if x > self.x {
+            (x - self.x, dist)
+        } else if x < self.x {
+            (self.x - x, -dist)
+        } else {
+            (0.0, 0.0)
+        };
+
+        let (ydist, ydelta) = if y > self.y {
+            (y - self.y, dist)
+        } else if y < self.y {
+            (self.y - y, -dist)
+        } else {
+            (0.0, 0.0)
+        };
+
+        (xdelta * (xdist / (xdist + ydist)), ydelta * (ydist / (xdist + ydist)))
     }
 }

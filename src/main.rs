@@ -298,10 +298,10 @@ fn main() {
 
     units[0].rotation = 0.0;
 
-    units[0].state = UnitState::Shooting(300.0, -100.0);
-    units[1].state = UnitState::Moving(0.0, 375.0);
-    units[2].state = UnitState::Moving(300.0, 200.0);
-    units[3].state = UnitState::Moving(300.0, 0.0);
+    units[0].state = UnitState::Aim(200.0, 200.0);
+    units[1].state = UnitState::Move(0.0, 375.0);
+    units[2].state = UnitState::Move(300.0, 200.0);
+    units[3].state = UnitState::Move(300.0, 0.0);
 
     let mut state = State::new();
     for unit in units {
