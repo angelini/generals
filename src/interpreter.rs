@@ -49,6 +49,7 @@ impl<'a> Interpreter<'a> {
 
         table.set("x", unit.x);
         table.set("y", unit.y);
+        table.set("team", unit.team as u32);
         table.set("role", unit.role.to_string());
         table.set("state", unit.state.to_string());
     }
