@@ -306,10 +306,10 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(375.0, 375.0),
-        Unit::new_soldier(200.0, 300.0),
-        Unit::new_soldier(350.0, 350.0),
-        Unit::new_bullet(10.0, 10.0),
+        Unit::new_general(375.0, 375.0, 1),
+        Unit::new_soldier(200.0, 300.0, 1),
+        Unit::new_soldier(350.0, 350.0, 2),
+        Unit::new_bullet(10.0, 10.0, 2),
     ];
 
     units[0].rotation = 0.0;

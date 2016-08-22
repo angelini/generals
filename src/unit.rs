@@ -17,6 +17,7 @@ pub type Id = Uuid;
 pub type Ids = HashSet<Id>;
 
 pub const BLUE: Color = [0.0, 0.0, 1.0, 1.0];
+pub const PURPLE: Color = [0.5, 0.5, 1.0, 1.0];
 pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
 pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
@@ -176,6 +177,7 @@ impl EventHandlers {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
     pub id: Id,
+    team: usize,
     color: Color,
     pub x: f64,
     pub y: f64,
@@ -190,15 +192,22 @@ pub struct Unit {
 }
 
 impl Unit {
-    fn new(role: UnitRole, x: f64, y: f64, width: f64, speed: f64) -> Unit {
+    fn new(role: UnitRole, x: f64, y: f64, team: usize, width: f64, speed: f64) -> Unit {
         let color = match role {
-            UnitRole::Soldier => BLUE,
+            UnitRole::Soldier => {
+                if team == 1 {
+                    BLUE
+                } else {
+                    PURPLE
+                }
+            }
             UnitRole::General => RED,
             UnitRole::Bullet => BLACK,
         };
 
         Unit {
             id: Uuid::new_v4(),
+            team: team,
             color: color,
             x: x,
             y: y,
@@ -213,20 +222,20 @@ impl Unit {
         }
     }
 
-    pub fn new_general(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::General, x, y, 50.0, 50.0);
+    pub fn new_general(x: f64, y: f64, team: usize) -> Unit {
+        let mut unit = Self::new(UnitRole::General, x, y, team, 50.0, 50.0);
         unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
-    pub fn new_soldier(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::Soldier, x, y, 25.0, 150.0);
+    pub fn new_soldier(x: f64, y: f64, team: usize) -> Unit {
+        let mut unit = Self::new(UnitRole::Soldier, x, y, team, 25.0, 150.0);
         unit.event_handlers.load(&unit.role.to_string());
         unit
     }
 
-    pub fn new_bullet(x: f64, y: f64) -> Unit {
-        let mut unit = Self::new(UnitRole::Bullet, x, y, 5.0, 150.0);
+    pub fn new_bullet(x: f64, y: f64, team: usize) -> Unit {
+        let mut unit = Self::new(UnitRole::Bullet, x, y, team, 5.0, 150.0);
         unit.event_handlers.load(&unit.role.to_string());
         unit
     }
@@ -300,7 +309,7 @@ impl Unit {
                 self.state = self.next_state();
 
                 let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
-                let mut bullet = Unit::new_bullet(self.x + xdelta, self.y + ydelta);
+                let mut bullet = Unit::new_bullet(self.x + xdelta, self.y + ydelta, self.team);
                 bullet.state = UnitState::Move(x, y);
                 vec![bullet]
             }
