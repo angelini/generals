@@ -90,29 +90,33 @@ impl<'a> State<'a> {
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
         let interpreter = &mut self.interpreter;
         let mut changed = HashSet::new();
+        let mut deltas = vec![];
 
         for unit in self.units.values_mut() {
             let original_state = unit.state.clone();
-            unit.update(args);
+            let new_units = unit.update(args);
+
+            deltas.append(&mut new_units.into_iter().map(Delta::NewUnit).collect());
 
             if unit.state != original_state {
                 changed.insert(unit.id);
             }
         }
 
-        self.units
+        let mut interpreter_deltas = self.units
             .iter()
             .filter(|&(id, _)| changed.contains(id))
-            .map(|(_, unit)| Self::run_unit_update(interpreter, unit))
-            .filter(|u| u.is_some())
-            .map(|u| u.unwrap())
-            .collect::<Vec<Delta>>()
+            .flat_map(|(_, unit)| Self::run_unit_update(interpreter, unit))
+            .collect::<Vec<Delta>>();
+
+        deltas.append(&mut interpreter_deltas);
+        deltas
     }
 
-    fn run_unit_update(interpreter: &mut Interpreter, unit: &Unit) -> Option<Delta> {
+    fn run_unit_update(interpreter: &mut Interpreter, unit: &Unit) -> Vec<Delta> {
         match unit.get_handler(&EventType::StateChange) {
-            Some(ref script) => Some(interpreter.exec(unit, script, None)),
-            None => None,
+            Some(ref script) => interpreter.exec(unit, script, None),
+            None => vec![],
         }
     }
 
@@ -157,7 +161,7 @@ impl<'a> State<'a> {
             Some(ref script) => {
                 let deltas = current_collides.iter()
                     .filter(|collide_id| !collides.contains(collide_id))
-                    .map(|collide_id| {
+                    .flat_map(|collide_id| {
                         let collide = units.get(collide_id).unwrap();
                         interpreter.exec(unit, script, Some(collide))
                     })
@@ -215,7 +219,7 @@ impl<'a> State<'a> {
             Some(ref script) => {
                 let deltas = current_views.iter()
                     .filter(|view_id| !seen.contains(view_id))
-                    .map(|view_id| {
+                    .flat_map(|view_id| {
                         let other = units.get(view_id).unwrap();
                         interpreter.exec(unit, script, Some(other))
                     })
@@ -238,7 +242,7 @@ impl<'a> State<'a> {
                 not_seen.iter()
                     .map(|other_id| units.get(other_id))
                     .filter(|other| other.is_some())
-                    .map(|other| interpreter.exec(unit, script, other))
+                    .flat_map(|other| interpreter.exec(unit, script, other))
                     .collect::<Vec<Delta>>()
             }
             None => vec![],
@@ -263,11 +267,23 @@ impl<'a> State<'a> {
 
     fn apply_deltas(&mut self, deltas: Vec<Delta>) {
         for delta in deltas {
-            let mut unit = self.units.get_mut(&delta.id).unwrap();
+            self.apply_delta(delta);
+        }
+    }
 
-            if unit.state != UnitState::Dead {
-                info!(target: "deltas", "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
-                unit.state = delta.state;
+    fn apply_delta(&mut self, delta: Delta) {
+        match delta {
+            Delta::StateChange(id, state) => {
+                let mut unit = self.units.get_mut(&id).unwrap();
+                if unit.state != UnitState::Dead {
+                    info!(target: "deltas",
+                        "- StateChange {:?} {:?} -> {:?}", unit.role, unit.state, state);
+                    unit.state = state;
+                }
+            }
+            Delta::NewUnit(unit) => {
+                info!(target: "deltas", "- NewUnit {:?} {:?}", unit.role, unit.state);
+                self.add_unit(unit)
             }
         }
     }
@@ -290,15 +306,15 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(25.0, 25.0),
+        Unit::new_general(375.0, 375.0),
         Unit::new_soldier(200.0, 300.0),
         Unit::new_soldier(350.0, 350.0),
-        Unit::new_bullet(400.0, 400.0),
+        Unit::new_bullet(10.0, 10.0),
     ];
 
     units[0].rotation = 0.0;
 
-    units[0].state = UnitState::Aim(200.0, 200.0);
+    units[0].state = UnitState::Shoot(100.0, 100.0);
     units[1].state = UnitState::Move(0.0, 375.0);
     units[2].state = UnitState::Move(300.0, 200.0);
     units[3].state = UnitState::Move(300.0, 0.0);

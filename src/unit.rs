@@ -2,6 +2,7 @@ use nalgebra::{Isometry2, Point2, Vector1, Vector2};
 use ncollide::query::{self, PointQuery, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
+use regex::Regex;
 use std::collections::HashSet;
 use std::f64;
 use std::fs::File;
@@ -9,7 +10,6 @@ use std::io;
 use std::io::prelude::*;
 use std::str::FromStr;
 use std::path::Path;
-use regex::Regex;
 use uuid::Uuid;
 
 pub type Color = [f32; 4];
@@ -231,7 +231,7 @@ impl Unit {
         unit
     }
 
-    pub fn update(&mut self, args: &UpdateArgs) {
+    pub fn update(&mut self, args: &UpdateArgs) -> Vec<Unit> {
         match self.state {
             UnitState::Move(x, y) => {
                 let dist = self.speed * args.dt;
@@ -244,14 +244,13 @@ impl Unit {
                     let original_state = self.state.clone();
                     self.state = self.next_state();
                     info!(target: "unit-state",
-                             "{:?} {:?} -> {:?}", self.role, original_state, self.state);
+                        "{:?} {:?} -> {:?}", self.role, original_state, self.state);
 
-                    return;
+                    return vec![];
                 }
 
-                let (new_x, new_y) = self.move_towards(x, y, args.dt);
-                self.x += new_x;
-                self.y += new_y;
+                self.move_self_towards(x, y, args.dt);
+                vec![]
             }
             UnitState::Aim(x, y) => {
                 let dx = x - self.x;
@@ -275,12 +274,10 @@ impl Unit {
                         info!(target: "unit-state",
                             "{:?} {:?} -> {:?}", self.role, original_state, self.state);
                     } else {
-                        let (new_x, new_y) = self.move_towards(x, y, args.dt);
-                        self.x += new_x;
-                        self.y += new_y;
+                        self.move_self_towards(x, y, args.dt);
                     }
 
-                    return;
+                    return vec![];
                 }
 
                 let delta = dest_rotation - curr_rotation;
@@ -292,17 +289,22 @@ impl Unit {
                         self.rotation += 2.0 * f64::consts::PI;
                     }
                 }
+                vec![]
             }
             UnitState::Shoot(x, y) => {
                 if !self.can_see_point(x, y) {
                     self.state = UnitState::Aim(x, y);
                     self.state_queue.push(UnitState::Shoot(x, y));
-                    return;
+                    return vec![];
                 }
-                println!("SHOOT!!!!!");
                 self.state = self.next_state();
+
+                let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
+                let mut bullet = Unit::new_bullet(self.x + xdelta, self.y + ydelta);
+                bullet.state = UnitState::Move(x, y);
+                vec![bullet]
             }
-            UnitState::Idle | _ => {}
+            UnitState::Idle | _ => vec![],
         }
     }
 
@@ -371,9 +373,14 @@ impl Unit {
         self.state_queue.pop().unwrap_or(UnitState::Idle)
     }
 
-    fn move_towards(&self, x: f64, y: f64, dt: f64) -> (f64, f64) {
+    fn move_self_towards(&mut self, x: f64, y: f64, dt: f64) {
         let dist = self.speed * dt;
+        let (xdelta, ydelta) = self.move_towards(x, y, dist);
+        self.x += xdelta;
+        self.y += ydelta;
+    }
 
+    fn move_towards(&self, x: f64, y: f64, dist: f64) -> (f64, f64) {
         let (xdist, xdelta) = if x > self.x {
             (x - self.x, dist)
         } else if x < self.x {

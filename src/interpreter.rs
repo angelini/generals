@@ -4,26 +4,23 @@ use std::str::FromStr;
 use unit::{Id, Unit, UnitState};
 
 #[derive(Debug)]
-pub struct Delta {
-    pub id: Id,
-    pub state: UnitState,
+pub enum Delta {
+    StateChange(Id, UnitState),
+    NewUnit(Unit),
 }
 
-
 pub struct Interpreter<'a> {
-    lua: Lua<'a>
+    lua: Lua<'a>,
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new() -> Interpreter<'a> {
         let mut lua = Lua::new();
         lua.openlibs();
-        Interpreter {
-            lua: lua
-        }
+        Interpreter { lua: lua }
     }
 
-    pub fn exec(&mut self, unit: &Unit, script: &str, other: Option<&Unit>) -> Delta {
+    pub fn exec(&mut self, unit: &Unit, script: &str, other: Option<&Unit>) -> Vec<Delta> {
         self.set_unit("self", unit);
 
         if let Some(other_unit) = other {
@@ -32,14 +29,15 @@ impl<'a> Interpreter<'a> {
 
         self.lua.execute::<()>(script).unwrap();
 
-        let mut result: LuaTable<_> = self.lua.get("self").unwrap();
-        let new_state: String = result.get("state").unwrap();
+        let mut new_self: LuaTable<_> = self.lua.get("self").unwrap();
+        let new_state: String = new_self.get("state").unwrap();
 
         match UnitState::from_str(&new_state) {
             Ok(state) => {
-                Delta {
-                    id: unit.id,
-                    state: state,
+                if state != unit.state {
+                    vec![Delta::StateChange(unit.id, state)]
+                } else {
+                    vec![]
                 }
             }
             Err(_) => panic!("Invalid state: {}", new_state),
