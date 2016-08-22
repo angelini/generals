@@ -111,6 +111,7 @@ impl FromStr for UnitState {
     }
 }
 
+#[derive(Debug)]
 pub enum EventType {
     Collision,
     StateChange,
@@ -177,7 +178,7 @@ impl EventHandlers {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
     pub id: Id,
-    team: usize,
+    pub team: usize,
     color: Color,
     pub x: f64,
     pub y: f64,
@@ -192,7 +193,15 @@ pub struct Unit {
 }
 
 impl Unit {
-    fn new(role: UnitRole, x: f64, y: f64, team: usize, width: f64, speed: f64) -> Unit {
+    fn new(role: UnitRole,
+           x: f64,
+           y: f64,
+           team: usize,
+           width: f64,
+           speed: f64,
+           state: UnitState)
+           -> Unit {
+        let mut handlers = EventHandlers::new();
         let color = match role {
             UnitRole::Soldier => {
                 if team == 1 {
@@ -205,6 +214,8 @@ impl Unit {
             UnitRole::Bullet => BLACK,
         };
 
+        handlers.load(&role.to_string());
+
         Unit {
             id: Uuid::new_v4(),
             team: team,
@@ -216,28 +227,22 @@ impl Unit {
             rotation: 0.0,
             shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
-            state: UnitState::Idle,
+            state: state,
             state_queue: Vec::new(),
-            event_handlers: EventHandlers::new(),
+            event_handlers: handlers,
         }
     }
 
-    pub fn new_general(x: f64, y: f64, team: usize) -> Unit {
-        let mut unit = Self::new(UnitRole::General, x, y, team, 50.0, 50.0);
-        unit.event_handlers.load(&unit.role.to_string());
-        unit
+    pub fn new_general(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
+        Self::new(UnitRole::General, x, y, team, 50.0, 50.0, state)
     }
 
-    pub fn new_soldier(x: f64, y: f64, team: usize) -> Unit {
-        let mut unit = Self::new(UnitRole::Soldier, x, y, team, 25.0, 150.0);
-        unit.event_handlers.load(&unit.role.to_string());
-        unit
+    pub fn new_soldier(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
+        Self::new(UnitRole::Soldier, x, y, team, 25.0, 150.0, state)
     }
 
-    pub fn new_bullet(x: f64, y: f64, team: usize) -> Unit {
-        let mut unit = Self::new(UnitRole::Bullet, x, y, team, 5.0, 150.0);
-        unit.event_handlers.load(&unit.role.to_string());
-        unit
+    pub fn new_bullet(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
+        Self::new(UnitRole::Bullet, x, y, team, 5.0, 150.0, state)
     }
 
     pub fn update(&mut self, args: &UpdateArgs) -> Vec<Unit> {
@@ -309,9 +314,10 @@ impl Unit {
                 self.state = self.next_state();
 
                 let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
-                let mut bullet = Unit::new_bullet(self.x + xdelta, self.y + ydelta, self.team);
-                bullet.state = UnitState::Move(x, y);
-                vec![bullet]
+                vec![Unit::new_bullet(self.x + xdelta,
+                                      self.y + ydelta,
+                                      self.team,
+                                      UnitState::Move(x, y))]
             }
             UnitState::Idle | _ => vec![],
         }

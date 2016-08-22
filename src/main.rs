@@ -18,6 +18,7 @@ mod unit;
 
 use piston_window::*;
 use std::collections::{HashMap, HashSet};
+use std::f64;
 
 use interpreter::{Delta, Interpreter};
 use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
@@ -306,18 +307,17 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(375.0, 375.0, 1),
-        Unit::new_soldier(200.0, 300.0, 1),
-        Unit::new_soldier(350.0, 350.0, 2),
-        Unit::new_bullet(10.0, 10.0, 2),
+        Unit::new_general(375.0, 375.0, 1, UnitState::Shoot(100.0, 100.0)),
+
+        Unit::new_soldier(50.0, 350.0, 1, UnitState::Aim(50.0, 300.0)),
+        Unit::new_soldier(150.0, 350.0, 1, UnitState::Aim(150.0, 300.0)),
+        Unit::new_soldier(250.0, 350.0, 1, UnitState::Aim(250.0, 300.0)),
+        Unit::new_soldier(350.0, 350.0, 1, UnitState::Aim(350.0, 300.0)),
+
+        Unit::new_soldier(100.0, 50.0, 2, UnitState::Move(200.0, 400.0)),
     ];
 
-    units[0].rotation = 0.0;
-
-    units[0].state = UnitState::Shoot(100.0, 100.0);
-    units[1].state = UnitState::Move(0.0, 375.0);
-    units[2].state = UnitState::Move(300.0, 200.0);
-    units[3].state = UnitState::Move(300.0, 0.0);
+    units[5].rotation = f64::consts::PI;
 
     let mut state = State::new();
     for unit in units {
