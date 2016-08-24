@@ -47,6 +47,7 @@ impl<'a> Interpreter<'a> {
     fn set_unit(&mut self, index: &str, unit: &Unit) {
         let mut table: LuaTable<_> = self.lua.empty_array(index);
 
+        table.set("id", unit.id.hyphenated().to_string());
         table.set("x", unit.x);
         table.set("y", unit.y);
         table.set("team", unit.team as u32);

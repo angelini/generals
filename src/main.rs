@@ -84,18 +84,33 @@ impl<'a> State<'a> {
             self.units.remove(&dead_unit);
         }
 
-        info!(target: "timing", "update {:.*}", 5,
-              (time::precise_time_ns() - time_start) as f64 / BILLION as f64);
+        let run_time = (time::precise_time_ns() - time_start) as f64 / BILLION as f64;
+        if run_time > 0.008 {
+            info!(target: "timing", "... {:.*}", 5, run_time);
+        } else {
+            info!(target: "timing", ".");
+        }
     }
 
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
-        let interpreter = &mut self.interpreter;
         let mut changed = HashSet::new();
         let mut deltas = vec![];
 
+        let views = self.units
+            .values()
+            .map(|u| {
+                let map = self.units
+                    .keys()
+                    .map(|id| (*id, self.units.get(id).unwrap().xy()))
+                    .collect::<HashMap<Id, (f64, f64)>>();
+                (u.id, map)
+            })
+            .collect::<HashMap<Id, HashMap<Id, (f64, f64)>>>();
+
         for unit in self.units.values_mut() {
             let original_state = unit.state.clone();
-            let new_units = unit.update(args);
+            let view = views.get(&unit.id);
+            let new_units = unit.update(args, view.unwrap());
 
             deltas.append(&mut new_units.into_iter().map(Delta::NewUnit).collect());
 
@@ -104,6 +119,7 @@ impl<'a> State<'a> {
             }
         }
 
+        let interpreter = &mut self.interpreter;
         let mut interpreter_deltas = self.units
             .iter()
             .filter(|&(id, _)| changed.contains(id))
@@ -307,12 +323,12 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(375.0, 375.0, 1, UnitState::Shoot(100.0, 100.0)),
+        Unit::new_general(375.0, 375.0, 1, UnitState::Move(100.0, 100.0)),
 
-        Unit::new_soldier(50.0, 350.0, 1, UnitState::Aim(50.0, 300.0)),
-        Unit::new_soldier(150.0, 350.0, 1, UnitState::Aim(150.0, 300.0)),
-        Unit::new_soldier(250.0, 350.0, 1, UnitState::Aim(250.0, 300.0)),
-        Unit::new_soldier(350.0, 350.0, 1, UnitState::Aim(350.0, 300.0)),
+        Unit::new_soldier(50.0, 350.0, 1, UnitState::Look(50.0, 300.0)),
+        Unit::new_soldier(150.0, 350.0, 1, UnitState::Look(150.0, 300.0)),
+        Unit::new_soldier(250.0, 350.0, 1, UnitState::Look(250.0, 300.0)),
+        Unit::new_soldier(350.0, 350.0, 1, UnitState::Look(350.0, 300.0)),
 
         Unit::new_soldier(100.0, 50.0, 2, UnitState::Move(200.0, 400.0)),
     ];

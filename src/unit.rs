@@ -3,7 +3,7 @@ use ncollide::query::{self, PointQuery, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::fs::File;
 use std::io;
@@ -57,8 +57,8 @@ impl FromStr for UnitRole {
 pub enum UnitState {
     Idle,
     Move(f64, f64),
-    Aim(f64, f64),
-    Shoot(f64, f64),
+    Look(f64, f64),
+    Shoot(Id),
     Dead,
 }
 
@@ -66,8 +66,8 @@ impl ToString for UnitState {
     fn to_string(&self) -> String {
         match *self {
             UnitState::Move(x, y) => format!("move({:.*}, {:.*})", 2, x, 2, y),
-            UnitState::Aim(x, y) => format!("aim({:.*}, {:.*})", 2, x, 2, y),
-            UnitState::Shoot(x, y) => format!("shoot({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Look(x, y) => format!("look({:.*}, {:.*})", 2, x, 2, y),
+            UnitState::Shoot(id) => format!("shoot({})", id),
             UnitState::Dead => "dead".to_string(),
             UnitState::Idle => "idle".to_string(),
         }
@@ -93,18 +93,21 @@ impl FromStr for UnitState {
             return Ok(UnitState::Move(x, y));
         };
 
-        let re = Regex::new(r"aim\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        let re = Regex::new(r"look\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
         if let Some(caps) = re.captures(s) {
             let x = f64::from_str(caps.name("x").unwrap()).unwrap();
             let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Aim(x, y));
+            return Ok(UnitState::Look(x, y));
         };
 
-        let re = Regex::new(r"shoot\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
+        let re = Regex::new(concat!(
+            r"shoot\(",
+            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
+            r"\)"))
+            .unwrap();
         if let Some(caps) = re.captures(s) {
-            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
-            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Shoot(x, y));
+            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
+            return Ok(UnitState::Shoot(id));
         };
 
         Err(s.to_string())
@@ -245,43 +248,23 @@ impl Unit {
         Self::new(UnitRole::Bullet, x, y, team, 5.0, 150.0, state)
     }
 
-    pub fn update(&mut self, args: &UpdateArgs) -> Vec<Unit> {
+    pub fn update(&mut self, args: &UpdateArgs, views: &HashMap<Id, (f64, f64)>) -> Vec<Unit> {
         match self.state {
             UnitState::Move(x, y) => {
-                let dist = self.speed * args.dt;
+                let moved = self.move_self_towards(x, y, args.dt);
 
-                if x < self.x + dist && x > self.x - dist && y < self.y + dist &&
-                   y > self.y - dist {
-                    self.x = x;
-                    self.y = y;
-
+                if moved {
                     let original_state = self.state.clone();
                     self.state = self.next_state();
                     info!(target: "unit-state",
                         "{:?} {:?} -> {:?}", self.role, original_state, self.state);
-
-                    return vec![];
                 }
-
-                self.move_self_towards(x, y, args.dt);
                 vec![]
             }
-            UnitState::Aim(x, y) => {
-                let dx = x - self.x;
-                let dy = y - self.y;
+            UnitState::Look(x, y) => {
+                let rotated = self.rotate_self_towards(x, y, args.dt);
 
-                let mut dest_rotation = (dy.atan2(dx) + 0.5 * f64::consts::PI) %
-                                        (2.0 * f64::consts::PI);
-                let curr_rotation = self.rotation % (2.0 * f64::consts::PI);
-
-                if dest_rotation < 0.0 {
-                    dest_rotation += 2.0 * f64::consts::PI;
-                }
-
-                if dest_rotation < curr_rotation + args.dt &&
-                   dest_rotation > curr_rotation - args.dt {
-                    self.rotation = dest_rotation;
-
+                if rotated {
                     if self.can_see_point(x, y) {
                         let original_state = self.state.clone();
                         self.state = self.next_state();
@@ -290,34 +273,31 @@ impl Unit {
                     } else {
                         self.move_self_towards(x, y, args.dt);
                     }
-
-                    return vec![];
-                }
-
-                let delta = dest_rotation - curr_rotation;
-                if delta > 0.0 && delta < f64::consts::PI {
-                    self.rotation += args.dt;
-                } else {
-                    self.rotation -= args.dt;
-                    if self.rotation < 0.0 {
-                        self.rotation += 2.0 * f64::consts::PI;
-                    }
                 }
                 vec![]
             }
-            UnitState::Shoot(x, y) => {
-                if !self.can_see_point(x, y) {
-                    self.state = UnitState::Aim(x, y);
-                    self.state_queue.push(UnitState::Shoot(x, y));
-                    return vec![];
-                }
-                self.state = self.next_state();
+            UnitState::Shoot(id) => {
+                let &(x, y) = match views.get(&id) {
+                    Some(xy) => xy,
+                    None => return vec![],
+                };
+                let rotated = self.rotate_self_towards(x, y, args.dt);
 
-                let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
-                vec![Unit::new_bullet(self.x + xdelta,
-                                      self.y + ydelta,
-                                      self.team,
-                                      UnitState::Move(x, y))]
+                if rotated {
+                    if self.can_see_point(x, y) {
+                        let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
+                        self.state = self.next_state();
+                        vec![Unit::new_bullet(self.x + xdelta,
+                                              self.y + ydelta,
+                                              self.team,
+                                              UnitState::Move(x, y))]
+                    } else {
+                        self.move_self_towards(x, y, args.dt);
+                        vec![]
+                    }
+                } else {
+                    vec![]
+                }
             }
             UnitState::Idle | _ => vec![],
         }
@@ -370,6 +350,10 @@ impl Unit {
         self.event_handlers.get(event_type)
     }
 
+    pub fn xy(&self) -> (f64, f64) {
+        (self.x, self.y)
+    }
+
     fn can_see_point(&self, x: f64, y: f64) -> bool {
         self.fov().contains_point(&self.position(), &Point2::new(x, y))
     }
@@ -388,11 +372,19 @@ impl Unit {
         self.state_queue.pop().unwrap_or(UnitState::Idle)
     }
 
-    fn move_self_towards(&mut self, x: f64, y: f64, dt: f64) {
+    fn move_self_towards(&mut self, x: f64, y: f64, dt: f64) -> bool {
         let dist = self.speed * dt;
-        let (xdelta, ydelta) = self.move_towards(x, y, dist);
-        self.x += xdelta;
-        self.y += ydelta;
+
+        if x < self.x + dist && x > self.x - dist && y < self.y + dist && y > self.y - dist {
+            self.x = x;
+            self.y = y;
+            true
+        } else {
+            let (xdelta, ydelta) = self.move_towards(x, y, dist);
+            self.x += xdelta;
+            self.y += ydelta;
+            false
+        }
     }
 
     fn move_towards(&self, x: f64, y: f64, dist: f64) -> (f64, f64) {
@@ -413,5 +405,34 @@ impl Unit {
         };
 
         (xdelta * (xdist / (xdist + ydist)), ydelta * (ydist / (xdist + ydist)))
+    }
+
+    fn rotate_self_towards(&mut self, x: f64, y: f64, dt: f64) -> bool {
+        let dx = x - self.x;
+        let dy = y - self.y;
+
+        let mut dest_rotation = (dy.atan2(dx) + 0.5 * f64::consts::PI) % (2.0 * f64::consts::PI);
+        let curr_rotation = self.rotation % (2.0 * f64::consts::PI);
+
+        if dest_rotation < 0.0 {
+            dest_rotation += 2.0 * f64::consts::PI;
+        }
+
+        if dest_rotation <= curr_rotation + dt && dest_rotation >= curr_rotation - dt {
+            self.rotation = dest_rotation;
+            true
+        } else {
+
+            let delta = dest_rotation - curr_rotation;
+            if delta > 0.0 && delta < f64::consts::PI {
+                self.rotation += dt;
+            } else {
+                self.rotation -= dt;
+                if self.rotation < 0.0 {
+                    self.rotation += 2.0 * f64::consts::PI;
+                }
+            }
+            false
+        }
     }
 }
