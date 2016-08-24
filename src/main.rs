@@ -94,7 +94,7 @@ impl<'a> State<'a> {
 
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
         let mut changed = HashSet::new();
-        let mut deltas = vec![];
+        let mut new_units = vec![];
 
         let views = self.units
             .values()
@@ -110,24 +110,25 @@ impl<'a> State<'a> {
         for unit in self.units.values_mut() {
             let original_state = unit.state.clone();
             let view = views.get(&unit.id);
-            let new_units = unit.update(args, view.unwrap());
+            let mut new_units_chunk = unit.update(args, view.unwrap());
 
-            deltas.append(&mut new_units.into_iter().map(Delta::NewUnit).collect());
+            new_units.append(&mut new_units_chunk);
 
             if unit.state != original_state {
                 changed.insert(unit.id);
             }
         }
 
+        for unit in new_units.into_iter() {
+            self.add_unit(unit)
+        }
+
         let interpreter = &mut self.interpreter;
-        let mut interpreter_deltas = self.units
+        self.units
             .iter()
             .filter(|&(id, _)| changed.contains(id))
             .flat_map(|(_, unit)| Self::run_unit_update(interpreter, unit))
-            .collect::<Vec<Delta>>();
-
-        deltas.append(&mut interpreter_deltas);
-        deltas
+            .collect::<Vec<Delta>>()
     }
 
     fn run_unit_update(interpreter: &mut Interpreter, unit: &Unit) -> Vec<Delta> {
@@ -289,19 +290,11 @@ impl<'a> State<'a> {
     }
 
     fn apply_delta(&mut self, delta: Delta) {
-        match delta {
-            Delta::StateChange(id, state) => {
-                let mut unit = self.units.get_mut(&id).unwrap();
-                if unit.state != UnitState::Dead {
-                    info!(target: "deltas",
-                        "- StateChange {:?} {:?} -> {:?}", unit.role, unit.state, state);
-                    unit.state = state;
-                }
-            }
-            Delta::NewUnit(unit) => {
-                info!(target: "deltas", "- NewUnit {:?} {:?}", unit.role, unit.state);
-                self.add_unit(unit)
-            }
+        let mut unit = self.units.get_mut(&delta.id).unwrap();
+        if unit.state != UnitState::Dead {
+            info!(target: "deltas",
+                  "- StateChange {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
+            unit.state = delta.state;
         }
     }
 }

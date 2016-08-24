@@ -4,9 +4,15 @@ use std::str::FromStr;
 use unit::{Id, Unit, UnitState};
 
 #[derive(Debug)]
-pub enum Delta {
-    StateChange(Id, UnitState),
-    NewUnit(Unit),
+pub struct Delta {
+    pub id: Id,
+    pub state: UnitState,
+}
+
+impl Delta {
+    fn new(id: Id, state: UnitState) -> Delta {
+        Delta { id: id, state: state }
+    }
 }
 
 pub struct Interpreter<'a> {
@@ -35,7 +41,7 @@ impl<'a> Interpreter<'a> {
         match UnitState::from_str(&new_state) {
             Ok(state) => {
                 if state != unit.state {
-                    vec![Delta::StateChange(unit.id, state)]
+                    vec![Delta::new(unit.id, state)]
                 } else {
                     vec![]
                 }
