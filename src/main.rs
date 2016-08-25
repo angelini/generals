@@ -19,26 +19,30 @@ mod unit;
 use piston_window::*;
 use std::collections::{HashMap, HashSet};
 use std::f64;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use interpreter::{Delta, Interpreter};
 use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
 
 const BILLION: u64 = 1000000000;
 
-struct State<'a> {
-    interpreter: Interpreter<'a>,
+struct State {
+    interpreter: Interpreter,
     units: HashMap<Id, Unit>,
     collision_cache: HashMap<Id, Ids>,
     view_cache: HashMap<Id, Ids>,
+    delta_rx: Receiver<Delta>,
 }
 
-impl<'a> State<'a> {
-    fn new() -> State<'a> {
+impl State {
+    fn new() -> State {
+        let (tx, rx) = mpsc::channel();
         State {
-            interpreter: Interpreter::new(),
+            interpreter: Interpreter::new(tx),
             units: HashMap::new(),
             collision_cache: HashMap::new(),
             view_cache: HashMap::new(),
+            delta_rx: rx,
         }
     }
 
@@ -51,23 +55,20 @@ impl<'a> State<'a> {
     fn update(&mut self, args: &UpdateArgs) {
         let time_start = time::precise_time_ns();
 
-        let deltas = self.run_all_unit_updates(args);
-        if !deltas.is_empty() {
-            info!(target: "deltas", "units ({})", deltas.len());
-        }
-        self.apply_deltas(deltas);
+        self.run_all_unit_updates(args);
+        self.run_all_collisions();
+        self.run_all_views();
 
-        let deltas = self.run_all_collisions();
-        if !deltas.is_empty() {
-            info!(target: "deltas", "collisions ({})", deltas.len());
+        loop {
+            match self.delta_rx.try_recv() {
+                Ok(delta) => {
+                    info!(target: "deltas", "{:?}", delta);
+                    self.apply_delta(delta)
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => panic!("delta_rx disconnected"),
+            }
         }
-        self.apply_deltas(deltas);
-
-        let deltas = self.run_all_views();
-        if !deltas.is_empty() {
-            info!(target: "deltas", "views ({})", deltas.len());
-        }
-        self.apply_deltas(deltas);
 
         let dead_units = self.units
             .iter()
@@ -85,14 +86,14 @@ impl<'a> State<'a> {
         }
 
         let run_time = (time::precise_time_ns() - time_start) as f64 / BILLION as f64;
-        if run_time > 0.008 {
+        if run_time > 0.001 {
             info!(target: "timing", "... {:.*}", 5, run_time);
         } else {
             info!(target: "timing", ".");
         }
     }
 
-    fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Vec<Delta> {
+    fn run_all_unit_updates(&mut self, args: &UpdateArgs) {
         let mut changed = HashSet::new();
         let mut new_units = vec![];
 
@@ -108,7 +109,7 @@ impl<'a> State<'a> {
             .collect::<HashMap<Id, HashMap<Id, (f64, f64)>>>();
 
         for unit in self.units.values_mut() {
-            let original_state = unit.state.clone();
+            let original_state = unit.state;
             let view = views.get(&unit.id);
             let mut new_units_chunk = unit.update(args, view.unwrap());
 
@@ -123,147 +124,84 @@ impl<'a> State<'a> {
             self.add_unit(unit)
         }
 
-        let interpreter = &mut self.interpreter;
-        self.units
-            .iter()
-            .filter(|&(id, _)| changed.contains(id))
-            .flat_map(|(_, unit)| Self::run_unit_update(interpreter, unit))
-            .collect::<Vec<Delta>>()
-    }
-
-    fn run_unit_update(interpreter: &mut Interpreter, unit: &Unit) -> Vec<Delta> {
-        match unit.get_handler(&EventType::StateChange) {
-            Some(ref script) => interpreter.exec(unit, script, None),
-            None => vec![],
+        for unit in self.units.values() {
+            if changed.contains(&unit.id) {
+                if let Some(ref script) = unit.get_handler(&EventType::StateChange) {
+                    self.interpreter.exec(script, unit, None)
+                }
+            }
         }
     }
 
-    fn run_all_collisions(&mut self) -> Vec<Delta> {
-        let interpreter = &mut self.interpreter;
+    fn run_all_collisions(&mut self) {
         let units = &self.units;
         let collision_cache = &mut self.collision_cache;
 
-        self.units
-            .keys()
-            .flat_map(|id| {
-                let unit = units.get(id).unwrap();
-                let script = unit.get_handler(&EventType::Collision);
+        for id in self.units.keys() {
+            let unit = units.get(id).unwrap();
+            let script = unit.get_handler(&EventType::Collision);
 
-                if !script.is_some() {
-                    return vec![];
-                }
-
-                let mut collides = collision_cache.get_mut(id).unwrap();
-                let (deltas, current_collides) =
-                    Self::run_collisions(interpreter, units, unit, collides, script);
-
-                collides.clear();
-                for collide in current_collides {
-                    collides.insert(collide);
-                }
-
-                deltas
-            })
-            .collect::<Vec<Delta>>()
-    }
-
-    fn run_collisions(interpreter: &mut Interpreter,
-                      units: &HashMap<Id, Unit>,
-                      unit: &Unit,
-                      collides: &Ids,
-                      script: Option<&str>)
-                      -> (Vec<Delta>, Ids) {
-        let current_collides = Self::detect_collisions(units, unit);
-
-        match script {
-            Some(ref script) => {
-                let deltas = current_collides.iter()
-                    .filter(|collide_id| !collides.contains(collide_id))
-                    .flat_map(|collide_id| {
-                        let collide = units.get(collide_id).unwrap();
-                        interpreter.exec(unit, script, Some(collide))
-                    })
-                    .collect::<Vec<Delta>>();
-                (deltas, current_collides)
+            if !script.is_some() {
+                continue;
             }
-            None => (vec![], current_collides),
+
+            let mut collides = collision_cache.get_mut(id).unwrap();
+            let current_collides = Self::detect_collisions(units, unit);
+
+            if let Some(ref script) = script {
+                for collide_id in &current_collides {
+                    if !collides.contains(collide_id) {
+                        let collide = units.get(collide_id).unwrap();
+                        self.interpreter.exec(script, unit, Some(collide))
+                    }
+                }
+            }
+
+            collides.clear();
+            for collide in current_collides {
+                collides.insert(collide);
+            }
         }
     }
 
-    fn run_all_views(&mut self) -> Vec<Delta> {
-        let interpreter = &mut self.interpreter;
+    fn run_all_views(&mut self) {
         let units = &self.units;
         let view_cache = &mut self.view_cache;
 
-        self.units
-            .keys()
-            .flat_map(|id| {
-                let unit = units.get(id).unwrap();
-                let enter_script = unit.get_handler(&EventType::EnterView);
-                let exit_script = unit.get_handler(&EventType::ExitView);
+        for id in self.units.keys() {
+            let unit = units.get(id).unwrap();
+            let enter_script = unit.get_handler(&EventType::EnterView);
+            let exit_script = unit.get_handler(&EventType::ExitView);
 
-                if !(enter_script.is_some() || exit_script.is_some()) {
-                    return vec![];
-                }
+            if !(enter_script.is_some() || exit_script.is_some()) {
+                continue;
+            }
 
-                let mut seen = view_cache.get_mut(id).unwrap();
-                let (mut enter_deltas, current_view) =
-                    Self::run_enter_views(interpreter, units, unit, seen, enter_script);
+            let mut seen = view_cache.get_mut(id).unwrap();
+            let current_views = Self::detect_views(units, unit);
 
-                let not_seen = seen.difference(&current_view).cloned().collect::<Ids>();
-                let mut exit_deltas =
-                    Self::run_exit_views(interpreter, units, unit, &not_seen, exit_script);
-
-                seen.clear();
-                for view in current_view {
-                    seen.insert(view);
-                }
-
-                enter_deltas.append(&mut exit_deltas);
-                enter_deltas
-            })
-            .collect::<Vec<Delta>>()
-    }
-
-    fn run_enter_views(interpreter: &mut Interpreter,
-                       units: &HashMap<Id, Unit>,
-                       unit: &Unit,
-                       seen: &Ids,
-                       script: Option<&str>)
-                       -> (Vec<Delta>, Ids) {
-        let current_views = Self::detect_views(units, unit);
-
-        match script {
-            Some(ref script) => {
-                let deltas = current_views.iter()
-                    .filter(|view_id| !seen.contains(view_id))
-                    .flat_map(|view_id| {
+            if let Some(ref script) = enter_script {
+                for view_id in &current_views {
+                    if !seen.contains(view_id) {
                         let other = units.get(view_id).unwrap();
-                        interpreter.exec(unit, script, Some(other))
-                    })
-                    .collect::<Vec<Delta>>();
-                (deltas, current_views)
+                        self.interpreter.exec(script, unit, Some(other))
+                    }
+                }
             }
-            None => (vec![], current_views),
-        }
-    }
 
-    fn run_exit_views(interpreter: &mut Interpreter,
-                      units: &HashMap<Id, Unit>,
-                      unit: &Unit,
-                      not_seen: &Ids,
-                      script: Option<&str>)
-                      -> Vec<Delta> {
-        // FIXME: does not fire event when unit dies
-        match script {
-            Some(ref script) => {
-                not_seen.iter()
-                    .map(|other_id| units.get(other_id))
-                    .filter(|other| other.is_some())
-                    .flat_map(|other| interpreter.exec(unit, script, other))
-                    .collect::<Vec<Delta>>()
+            let not_seen = seen.difference(&current_views).cloned().collect::<Ids>();
+
+            if let Some(ref script) = exit_script {
+                for view_id in not_seen {
+                    let other = units.get(&view_id);
+                    self.interpreter.exec(script, unit, other);
+                }
             }
-            None => vec![],
+
+            seen.clear();
+            for view in current_views {
+                seen.insert(view);
+            }
         }
     }
 
@@ -281,12 +219,6 @@ impl<'a> State<'a> {
             .filter(|&(_, u)| unit.can_see(u))
             .map(|(view_id, _)| *view_id)
             .collect()
-    }
-
-    fn apply_deltas(&mut self, deltas: Vec<Delta>) {
-        for delta in deltas {
-            self.apply_delta(delta);
-        }
     }
 
     fn apply_delta(&mut self, delta: Delta) {

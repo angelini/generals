@@ -23,7 +23,7 @@ pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 pub const GRAY: Color = [0.0, 0.0, 0.0, 0.3];
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnitRole {
     Soldier,
     General,
@@ -53,7 +53,7 @@ impl FromStr for UnitRole {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnitState {
     Idle,
     Move(f64, f64),
@@ -254,7 +254,7 @@ impl Unit {
                 let moved = self.move_self_towards(x, y, args.dt);
 
                 if moved {
-                    let original_state = self.state.clone();
+                    let original_state = self.state;
                     self.state = self.next_state();
                     info!(target: "unit-state",
                         "{:?} {:?} -> {:?}", self.role, original_state, self.state);
@@ -266,7 +266,7 @@ impl Unit {
 
                 if rotated {
                     if self.can_see_point(x, y) {
-                        let original_state = self.state.clone();
+                        let original_state = self.state;
                         self.state = self.next_state();
                         info!(target: "unit-state",
                             "{:?} {:?} -> {:?}", self.role, original_state, self.state);
