@@ -61,10 +61,7 @@ impl State {
 
         loop {
             match self.delta_rx.try_recv() {
-                Ok(delta) => {
-                    info!(target: "deltas", "{:?}", delta);
-                    self.apply_delta(delta)
-                }
+                Ok(delta) => self.apply_delta(delta),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => panic!("delta_rx disconnected"),
             }
@@ -127,7 +124,7 @@ impl State {
         for unit in self.units.values() {
             if changed.contains(&unit.id) {
                 if let Some(ref script) = unit.get_handler(&EventType::StateChange) {
-                    self.interpreter.exec(script, unit, None)
+                    self.interpreter.exec(script, unit, None).unwrap()
                 }
             }
         }
@@ -152,7 +149,7 @@ impl State {
                 for collide_id in &current_collides {
                     if !collides.contains(collide_id) {
                         let collide = units.get(collide_id).unwrap();
-                        self.interpreter.exec(script, unit, Some(collide))
+                        self.interpreter.exec(script, unit, Some(collide)).unwrap()
                     }
                 }
             }
@@ -184,7 +181,7 @@ impl State {
                 for view_id in &current_views {
                     if !seen.contains(view_id) {
                         let other = units.get(view_id).unwrap();
-                        self.interpreter.exec(script, unit, Some(other))
+                        self.interpreter.exec(script, unit, Some(other)).unwrap()
                     }
                 }
             }
@@ -194,7 +191,7 @@ impl State {
             if let Some(ref script) = exit_script {
                 for view_id in not_seen {
                     let other = units.get(&view_id);
-                    self.interpreter.exec(script, unit, other);
+                    self.interpreter.exec(script, unit, other).unwrap()
                 }
             }
 
@@ -225,7 +222,7 @@ impl State {
         let mut unit = self.units.get_mut(&delta.id).unwrap();
         if unit.state != UnitState::Dead {
             info!(target: "deltas",
-                  "- StateChange {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
+                  "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
             unit.state = delta.state;
         }
     }
