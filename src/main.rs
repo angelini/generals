@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use interpreter::{Delta, Interpreter};
+use interpreter::{Delta, Error, Interpreter};
 use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
 
 const BILLION: u64 = 1000000000;
@@ -52,12 +52,12 @@ impl State {
         self.units.insert(unit.id, unit);
     }
 
-    fn update(&mut self, args: &UpdateArgs) {
+    fn update(&mut self, args: &UpdateArgs) -> Result<(), Error> {
         let time_start = time::precise_time_ns();
 
-        self.run_all_unit_updates(args);
-        self.run_all_collisions();
-        self.run_all_views();
+        try!(self.run_all_unit_updates(args));
+        try!(self.run_all_collisions());
+        try!(self.run_all_views());
 
         loop {
             match self.delta_rx.try_recv() {
@@ -88,9 +88,11 @@ impl State {
         } else {
             info!(target: "timing", ".");
         }
+
+        Ok(())
     }
 
-    fn run_all_unit_updates(&mut self, args: &UpdateArgs) {
+    fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Result<(), Error> {
         let mut changed = HashSet::new();
         let mut new_units = vec![];
 
@@ -124,82 +126,90 @@ impl State {
         for unit in self.units.values() {
             if changed.contains(&unit.id) {
                 if let Some(ref script) = unit.get_handler(&EventType::StateChange) {
-                    self.interpreter.exec(script, unit, None).unwrap()
+                    try!(self.interpreter.exec(script, unit, None))
                 }
             }
         }
+
+        Ok(())
     }
 
-    fn run_all_collisions(&mut self) {
+    fn run_all_collisions(&mut self) -> Result<(), Error> {
         let units = &self.units;
-        let collision_cache = &mut self.collision_cache;
 
-        for id in self.units.keys() {
-            let unit = units.get(id).unwrap();
-            let script = unit.get_handler(&EventType::Collision);
-
-            if !script.is_some() {
-                continue;
-            }
-
-            let mut collides = collision_cache.get_mut(id).unwrap();
-            let current_collides = Self::detect_collisions(units, unit);
-
-            if let Some(ref script) = script {
-                for collide_id in &current_collides {
-                    if !collides.contains(collide_id) {
-                        let collide = units.get(collide_id).unwrap();
-                        self.interpreter.exec(script, unit, Some(collide)).unwrap()
-                    }
-                }
-            }
-
-            collides.clear();
-            for collide in current_collides {
-                collides.insert(collide);
-            }
+        for id in units.keys() {
+            let unit = self.units.get(id).unwrap();
+            let seen = self.collision_cache.remove(id).unwrap();
+            let current_view = try!(Self::run_collisions(&mut self.interpreter, unit, &seen, units));
+            self.collision_cache.insert(*id, current_view);
         }
+
+        Ok(())
     }
 
-    fn run_all_views(&mut self) {
-        let units = &self.units;
-        let view_cache = &mut self.view_cache;
+    fn run_collisions(interp: &mut Interpreter, unit: &Unit, collisions: &Ids, units: &HashMap<Id, Unit>) -> Result<Ids, Error> {
+        let script = unit.get_handler(&EventType::Collision);
 
-        for id in self.units.keys() {
-            let unit = units.get(id).unwrap();
-            let enter_script = unit.get_handler(&EventType::EnterView);
-            let exit_script = unit.get_handler(&EventType::ExitView);
+        if !script.is_some() {
+            return Ok(HashSet::new());
+        }
 
-            if !(enter_script.is_some() || exit_script.is_some()) {
-                continue;
-            }
+        let current_collisions = Self::detect_collisions(units, unit);
 
-            let mut seen = view_cache.get_mut(id).unwrap();
-            let current_views = Self::detect_views(units, unit);
-
-            if let Some(ref script) = enter_script {
-                for view_id in &current_views {
-                    if !seen.contains(view_id) {
-                        let other = units.get(view_id).unwrap();
-                        self.interpreter.exec(script, unit, Some(other)).unwrap()
-                    }
+        if let Some(ref script) = script {
+            for collision_id in &current_collisions {
+                if !collisions.contains(collision_id) {
+                    let collision = units.get(collision_id).unwrap();
+                    try!(interp.exec(script, unit, Some(collision)))
                 }
-            }
-
-            let not_seen = seen.difference(&current_views).cloned().collect::<Ids>();
-
-            if let Some(ref script) = exit_script {
-                for view_id in not_seen {
-                    let other = units.get(&view_id);
-                    self.interpreter.exec(script, unit, other).unwrap()
-                }
-            }
-
-            seen.clear();
-            for view in current_views {
-                seen.insert(view);
             }
         }
+
+        Ok(current_collisions)
+    }
+
+    fn run_all_views(&mut self) -> Result<(), Error> {
+        let units = &self.units;
+
+        for id in units.keys() {
+            let unit = self.units.get(id).unwrap();
+            let seen = self.view_cache.remove(id).unwrap();
+            let current_view = try!(Self::run_views(&mut self.interpreter, unit, &seen, units));
+            self.view_cache.insert(*id, current_view);
+        }
+
+        Ok(())
+    }
+
+    fn run_views(interp: &mut Interpreter, unit: &Unit, seen: &Ids, units: &HashMap<Id, Unit>) -> Result<Ids, Error> {
+        let enter_script = unit.get_handler(&EventType::EnterView);
+        let exit_script = unit.get_handler(&EventType::ExitView);
+
+        if !(enter_script.is_some() || exit_script.is_some()) {
+            return Ok(HashSet::new());
+        }
+
+        let current_views = Self::detect_views(units, unit);
+
+        if let Some(ref script) = enter_script {
+            for view_id in &current_views {
+                if !seen.contains(view_id) {
+                    let other = units.get(view_id).unwrap();
+                    try!(interp.exec(script, unit, Some(other)))
+                }
+            }
+        }
+
+        let not_seen = seen.difference(&current_views).cloned().collect::<Ids>();
+
+        if let Some(ref script) = exit_script {
+            for view_id in not_seen {
+                let other = units.get(&view_id);
+                try!(interp.exec(script, unit, other))
+            }
+        }
+
+        Ok(current_views)
     }
 
     fn detect_collisions(units: &HashMap<Id, Unit>, unit: &Unit) -> Ids {
@@ -245,7 +255,7 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(375.0, 375.0, 1, UnitState::Move(100.0, 100.0)),
+        Unit::new_general(25.0, 25.0, 1, UnitState::Move(375.0, 375.0)),
 
         Unit::new_soldier(50.0, 350.0, 1, UnitState::Look(50.0, 300.0)),
         Unit::new_soldier(150.0, 350.0, 1, UnitState::Look(150.0, 300.0)),
@@ -253,9 +263,16 @@ fn main() {
         Unit::new_soldier(350.0, 350.0, 1, UnitState::Look(350.0, 300.0)),
 
         Unit::new_soldier(100.0, 50.0, 2, UnitState::Move(200.0, 400.0)),
+        Unit::new_soldier(175.0, 70.0, 2, UnitState::Move(300.0, 400.0)),
+        Unit::new_soldier(90.0, 45.0, 2, UnitState::Move(120.0, 400.0)),
+        Unit::new_soldier(300.0, 30.0, 2, UnitState::Move(100.0, 400.0)),
     ];
 
+    units[0].rotation = 2.0;
     units[5].rotation = f64::consts::PI;
+    units[6].rotation = f64::consts::PI;
+    units[7].rotation = f64::consts::PI;
+    units[8].rotation = f64::consts::PI;
 
     let mut state = State::new();
     for unit in units {
@@ -269,7 +286,10 @@ fn main() {
                 draw_units(&mut window, e, &args, &state);
             }
             Event::Update(args) => {
-                state.update(&args);
+                match state.update(&args) {
+                    Ok(_) => {},
+                    Err(err) => panic!(err)
+                }
             }
             _ => {}
         }
