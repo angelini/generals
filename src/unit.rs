@@ -5,11 +5,7 @@ use piston_window::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::f64;
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
 use std::str::FromStr;
-use std::path::Path;
 use uuid::Uuid;
 
 pub type Color = [f32; 4];
@@ -114,70 +110,6 @@ impl FromStr for UnitState {
     }
 }
 
-#[derive(Debug)]
-pub enum EventType {
-    Collision,
-    StateChange,
-    EnterView,
-    ExitView,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct EventHandlers {
-    on_collision: Option<String>,
-    on_state_change: Option<String>,
-    on_enter_view: Option<String>,
-    on_exit_view: Option<String>,
-}
-
-impl EventHandlers {
-    fn new() -> EventHandlers {
-        EventHandlers {
-            on_collision: None,
-            on_state_change: None,
-            on_enter_view: None,
-            on_exit_view: None,
-        }
-    }
-
-    fn load(&mut self, prefix: &str) {
-        if let Ok(script) = Self::read_script(prefix, "on_collision") {
-            self.on_collision = Some(script);
-        }
-        if let Ok(script) = Self::read_script(prefix, "on_state_change") {
-            self.on_state_change = Some(script);
-        }
-        if let Ok(script) = Self::read_script(prefix, "on_enter_view") {
-            self.on_enter_view = Some(script);
-        }
-        if let Ok(script) = Self::read_script(prefix, "on_exit_view") {
-            self.on_exit_view = Some(script);
-        }
-    }
-
-    fn get(&self, event_type: &EventType) -> Option<&str> {
-        let script = match *event_type {
-            EventType::Collision => self.on_collision.as_ref(),
-            EventType::StateChange => self.on_state_change.as_ref(),
-            EventType::EnterView => self.on_enter_view.as_ref(),
-            EventType::ExitView => self.on_exit_view.as_ref(),
-        };
-        match script {
-            Some(s) => Some(s.as_str()),
-            None => None,
-        }
-    }
-
-    fn read_script(prefix: &str, suffix: &str) -> Result<String, io::Error> {
-        let path_string = format!("lua/{}_{}.lua", prefix, suffix);
-        let path = Path::new(&path_string);
-        let mut file = try!(File::open(path));
-        let mut s = String::new();
-        try!(file.read_to_string(&mut s));
-        Ok(s)
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Unit {
     pub id: Id,
@@ -192,7 +124,6 @@ pub struct Unit {
     pub role: UnitRole,
     pub state: UnitState,
     state_queue: Vec<UnitState>,
-    event_handlers: EventHandlers,
 }
 
 impl Unit {
@@ -204,7 +135,6 @@ impl Unit {
            speed: f64,
            state: UnitState)
            -> Unit {
-        let mut handlers = EventHandlers::new();
         let color = match role {
             UnitRole::Soldier => {
                 if team == 1 {
@@ -216,8 +146,6 @@ impl Unit {
             UnitRole::General => RED,
             UnitRole::Bullet => BLACK,
         };
-
-        handlers.load(&role.to_string());
 
         Unit {
             id: Uuid::new_v4(),
@@ -232,7 +160,6 @@ impl Unit {
             role: role,
             state: state,
             state_queue: Vec::new(),
-            event_handlers: handlers,
         }
     }
 
@@ -344,10 +271,6 @@ impl Unit {
             Proximity::Intersecting => true,
             Proximity::Disjoint | Proximity::WithinMargin => false,
         }
-    }
-
-    pub fn get_handler(&self, event_type: &EventType) -> Option<&str> {
-        self.event_handlers.get(event_type)
     }
 
     pub fn xy(&self) -> (f64, f64) {

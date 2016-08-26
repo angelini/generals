@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use interpreter::{Delta, Error, Interpreter};
-use unit::{EventType, GREEN, Id, Ids, Unit, UnitState};
+use interpreter::{Delta, Error, EventType, Interpreter};
+use unit::{GREEN, Id, Ids, Unit, UnitState};
 
 const BILLION: u64 = 1000000000;
 
@@ -125,9 +125,7 @@ impl State {
 
         for unit in self.units.values() {
             if changed.contains(&unit.id) {
-                if let Some(ref script) = unit.get_handler(&EventType::StateChange) {
-                    try!(self.interpreter.exec(script, unit, None))
-                }
+                try!(self.interpreter.exec(&unit.role, &EventType::StateChange, unit, None));
             }
         }
 
@@ -140,31 +138,27 @@ impl State {
         for id in units.keys() {
             let unit = self.units.get(id).unwrap();
             let seen = self.collision_cache.remove(id).unwrap();
-            let current_view = try!(Self::run_collisions(&mut self.interpreter, unit, &seen, units));
+            let current_view =
+                try!(Self::run_collisions(&mut self.interpreter, unit, &seen, units));
             self.collision_cache.insert(*id, current_view);
         }
 
         Ok(())
     }
 
-    fn run_collisions(interp: &mut Interpreter, unit: &Unit, collisions: &Ids, units: &HashMap<Id, Unit>) -> Result<Ids, Error> {
-        let script = unit.get_handler(&EventType::Collision);
-
-        if !script.is_some() {
-            return Ok(HashSet::new());
-        }
-
+    fn run_collisions(interp: &mut Interpreter,
+                      unit: &Unit,
+                      collisions: &Ids,
+                      units: &HashMap<Id, Unit>)
+                      -> Result<Ids, Error> {
         let current_collisions = Self::detect_collisions(units, unit);
 
-        if let Some(ref script) = script {
-            for collision_id in &current_collisions {
-                if !collisions.contains(collision_id) {
-                    let collision = units.get(collision_id).unwrap();
-                    try!(interp.exec(script, unit, Some(collision)))
-                }
+        for collision_id in &current_collisions {
+            if !collisions.contains(collision_id) {
+                let collision = units.get(collision_id).unwrap();
+                try!(interp.exec(&unit.role, &EventType::Collision, unit, Some(collision)))
             }
         }
-
         Ok(current_collisions)
     }
 
@@ -181,32 +175,25 @@ impl State {
         Ok(())
     }
 
-    fn run_views(interp: &mut Interpreter, unit: &Unit, seen: &Ids, units: &HashMap<Id, Unit>) -> Result<Ids, Error> {
-        let enter_script = unit.get_handler(&EventType::EnterView);
-        let exit_script = unit.get_handler(&EventType::ExitView);
-
-        if !(enter_script.is_some() || exit_script.is_some()) {
-            return Ok(HashSet::new());
-        }
-
+    fn run_views(interp: &mut Interpreter,
+                 unit: &Unit,
+                 seen: &Ids,
+                 units: &HashMap<Id, Unit>)
+                 -> Result<Ids, Error> {
         let current_views = Self::detect_views(units, unit);
 
-        if let Some(ref script) = enter_script {
-            for view_id in &current_views {
-                if !seen.contains(view_id) {
-                    let other = units.get(view_id).unwrap();
-                    try!(interp.exec(script, unit, Some(other)))
-                }
+        for view_id in &current_views {
+            if !seen.contains(view_id) {
+                let other = units.get(view_id).unwrap();
+                try!(interp.exec(&unit.role, &EventType::EnterView, unit, Some(other)))
             }
         }
 
         let not_seen = seen.difference(&current_views).cloned().collect::<Ids>();
 
-        if let Some(ref script) = exit_script {
-            for view_id in not_seen {
-                let other = units.get(&view_id);
-                try!(interp.exec(script, unit, other))
-            }
+        for view_id in not_seen {
+            let other = units.get(&view_id);
+            try!(interp.exec(&unit.role, &EventType::ExitView, unit, other))
         }
 
         Ok(current_views)
@@ -255,7 +242,7 @@ fn main() {
         .unwrap();
 
     let mut units = vec![
-        Unit::new_general(25.0, 25.0, 1, UnitState::Move(375.0, 375.0)),
+        Unit::new_general(25.0, 25.0, 1, UnitState::Move(50.0, 50.0)),
 
         Unit::new_soldier(50.0, 350.0, 1, UnitState::Look(50.0, 300.0)),
         Unit::new_soldier(150.0, 350.0, 1, UnitState::Look(150.0, 300.0)),
@@ -287,8 +274,8 @@ fn main() {
             }
             Event::Update(args) => {
                 match state.update(&args) {
-                    Ok(_) => {},
-                    Err(err) => panic!(err)
+                    Ok(_) => {}
+                    Err(err) => panic!(err),
                 }
             }
             _ => {}
