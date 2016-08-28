@@ -216,11 +216,16 @@ impl State {
     }
 
     fn apply_delta(&mut self, delta: Delta) {
-        let mut unit = self.units.get_mut(&delta.id).unwrap();
-        if unit.state != UnitState::Dead {
-            info!(target: "deltas",
-                  "- {:?} {:?} -> {:?}", unit.role, unit.state, delta.state);
-            unit.state = delta.state;
+        match delta {
+            Delta::UpdateState(id, state) => {
+                let mut unit = self.units.get_mut(&id).unwrap();
+                if unit.state != UnitState::Dead {
+                    info!(target: "deltas",
+                          "- {:?} {:?} -> {:?}", unit.role, unit.state, state);
+                    unit.state = state;
+                }
+            }
+            Delta::NewUnit(_, _, _, _, _) => unimplemented!()
         }
     }
 }

@@ -29,17 +29,62 @@ impl ToString for EventType {
 }
 
 #[derive(Debug)]
-pub struct Delta {
-    pub id: Id,
-    pub state: UnitState,
+pub enum Delta {
+    UpdateState(Id, UnitState),
+    NewUnit(UnitRole, Id, f64, f64, usize),
 }
 
 impl Delta {
     fn new(id: Id, state: UnitState) -> Delta {
-        Delta {
-            id: id,
-            state: state,
-        }
+        Delta::UpdateState(id, state)
+    }
+}
+
+impl FromStr for Delta {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let re = Regex::new(concat!(
+            r"new_unit\(",
+            r"(?P<role>soldier|general|bullet)",
+            r", ",
+            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
+            r", ",
+            r"(?P<x>\d+.\d+)",
+            r", ",
+            r"(?P<y>\d+.\d+)",
+            r", ",
+            r"(?P<team>\d+)",
+            r"\)"))
+            .unwrap();
+        if let Some(caps) = re.captures(s) {
+            let role = match caps.name("role").unwrap() {
+                "soldier" => UnitRole::Soldier,
+                "general" => UnitRole::General,
+                "bullet" => UnitRole::Bullet,
+                _ => panic!("invalid regex state")
+            };
+            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
+            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
+            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
+            let team = usize::from_str(caps.name("team").unwrap()).unwrap();
+            return Ok(Delta::NewUnit(role, id, x, y, team));
+        };
+
+        let re = Regex::new(concat!(
+            r"update_state\(",
+            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
+            r", ",
+            r"(?P<state>.*)",
+            r"\)"))
+            .unwrap();
+        if let Some(caps) = re.captures(s) {
+            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
+            let state = UnitState::from_str(caps.name("state").unwrap()).unwrap();
+            return Ok(Delta::UpdateState(id, state));
+        };
+
+        Err(s.to_string())
     }
 }
 
@@ -119,7 +164,7 @@ fn gen_uuid() -> String {
 #[derive(Debug)]
 struct TimelineEvent {
     time: u32,
-    delta: String,
+    delta: Delta,
 }
 
 impl FromStr for TimelineEvent {
@@ -130,7 +175,7 @@ impl FromStr for TimelineEvent {
         match re.captures(s) {
             Some(caps) => {
                 let time = u32::from_str(caps.name("time").unwrap()).unwrap();
-                let delta = String::from(caps.name("delta").unwrap());
+                let delta = Delta::from_str(caps.name("delta").unwrap()).unwrap();
                 Ok(TimelineEvent {
                     time: time,
                     delta: delta,

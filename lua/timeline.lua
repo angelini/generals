@@ -3,7 +3,7 @@ function new_soldier (id, x, y, team)
 end
 
 function random_move_by_id (id)
-   return string.format("move(%s, %f, %f)", id, math.random(400), math.random(400))
+   return string.format("update_state(%s, %s)", id, random_move())
 end
 
 function flatten_timeline (timeline)
