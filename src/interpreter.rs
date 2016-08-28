@@ -1,4 +1,5 @@
 use hlua::{self, Lua, LuaTable};
+use regex::Regex;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -111,6 +112,35 @@ fn load_lua_scripts(lua: &mut Lua) -> Result<(), Error> {
     Ok(())
 }
 
+fn gen_uuid() -> String {
+    Id::new_v4().hyphenated().to_string()
+}
+
+#[derive(Debug)]
+struct TimelineEvent {
+    time: u32,
+    delta: String,
+}
+
+impl FromStr for TimelineEvent {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let re = Regex::new(r"\((?P<time>\d+), (?P<delta>.*)\)").unwrap();
+        match re.captures(s) {
+            Some(caps) => {
+                let time = u32::from_str(caps.name("time").unwrap()).unwrap();
+                let delta = String::from(caps.name("delta").unwrap());
+                Ok(TimelineEvent {
+                    time: time,
+                    delta: delta,
+                })
+            }
+            None => Err(s.to_string()),
+        }
+    }
+}
+
 pub struct Interpreter {
     tx: Sender<ExecState>,
 }
@@ -126,10 +156,15 @@ impl Interpreter {
             let mut lua = Lua::new();
             lua.openlibs();
 
+            lua.set("uuid", hlua::function0(gen_uuid));
+
             match load_lua_scripts(&mut lua) {
                 Ok(_) => {}
                 Err(err) => panic!(err),
             }
+
+            let timeline = Self::generate_timeline(&mut lua);
+            info!(target: "timeline", "{:?}", timeline);
 
             while let Ok(state) = rx.recv() {
                 match Self::exec_function(&mut lua, state) {
@@ -192,6 +227,25 @@ impl Interpreter {
             }
             Err(_) => panic!("Invalid state: {}", new_state),
         }
+    }
+
+    fn generate_timeline(lua: &mut Lua) -> Result<Vec<TimelineEvent>, Error> {
+        if try!(lua.execute::<bool>("return _G[\"timeline\"] == nil")) {
+            return Ok(vec![]);
+        }
+
+        try!(lua.execute("__timeline = timeline()"));
+
+        let mut timeline: LuaTable<_> = match lua.get("__timeline") {
+            Some(table) => table,
+            None => return Err(Error::LuaIndexNotFound("__timeline".to_string())),
+        };
+
+        let result = timeline.iter()
+            .filter_map(|e| e)
+            .map(|(_, v): (u32, String)| TimelineEvent::from_str(&v).unwrap())
+            .collect::<Vec<TimelineEvent>>();
+        Ok(result)
     }
 
     fn set_unit(lua: &mut Lua, index: &str, unit: &UnitSnapshot) {
