@@ -225,7 +225,9 @@ impl State {
                     unit.state = state;
                 }
             }
-            Delta::NewUnit(_, _, _, _, _) => unimplemented!()
+            Delta::NewUnit(role, id, x, y, team) => {
+                self.add_unit(Unit::new(role, id, x, y, team, UnitState::Idle));
+            }
         }
     }
 }
@@ -246,31 +248,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut units = vec![
-        Unit::new_general(25.0, 25.0, 1, UnitState::Move(50.0, 50.0)),
-
-        Unit::new_soldier(50.0, 350.0, 1, UnitState::Look(50.0, 300.0)),
-        Unit::new_soldier(150.0, 350.0, 1, UnitState::Look(150.0, 300.0)),
-        Unit::new_soldier(250.0, 350.0, 1, UnitState::Look(250.0, 300.0)),
-        Unit::new_soldier(350.0, 350.0, 1, UnitState::Look(350.0, 300.0)),
-
-        Unit::new_soldier(100.0, 50.0, 2, UnitState::Move(200.0, 400.0)),
-        Unit::new_soldier(175.0, 70.0, 2, UnitState::Move(300.0, 400.0)),
-        Unit::new_soldier(90.0, 45.0, 2, UnitState::Move(120.0, 400.0)),
-        Unit::new_soldier(300.0, 30.0, 2, UnitState::Move(100.0, 400.0)),
-    ];
-
-    units[0].rotation = 2.0;
-    units[5].rotation = f64::consts::PI;
-    units[6].rotation = f64::consts::PI;
-    units[7].rotation = f64::consts::PI;
-    units[8].rotation = f64::consts::PI;
-
     let mut state = State::new();
-    for unit in units {
-        info!(target: "units", "{} {:?}", unit.id, unit.role);
-        state.add_unit(unit)
-    }
 
     while let Some(e) = window.next() {
         match e {

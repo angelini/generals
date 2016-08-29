@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::str::FromStr;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time;
 
 use unit::{Id, Unit, UnitRole, UnitState};
 
@@ -196,6 +197,7 @@ impl Interpreter {
         lua.openlibs();
 
         let (tx, rx): (Sender<ExecState>, Receiver<ExecState>) = mpsc::channel();
+        let delta_tx_cloned = delta_tx.clone();
 
         thread::spawn(move || {
             let mut lua = Lua::new();
@@ -208,8 +210,36 @@ impl Interpreter {
                 Err(err) => panic!(err),
             }
 
-            let timeline = Self::generate_timeline(&mut lua);
+            let timeline = match Self::generate_timeline(&mut lua) {
+                Ok(events) => events,
+                Err(err) => panic!(err)
+            };
             info!(target: "timeline", "{:?}", timeline);
+
+            let mut current_time = 0;
+            for event in timeline {
+                let wait_time = event.time - current_time;
+                let duration = time::Duration::from_secs(wait_time as u64);
+
+                info!(target: "timeline", "waiting {}", wait_time);
+                thread::sleep(duration);
+
+                current_time += wait_time;
+                info!(target: "timeline", "{:?}", event);
+                delta_tx_cloned.send(event.delta).unwrap();
+            }
+        });
+
+        thread::spawn(move || {
+            let mut lua = Lua::new();
+            lua.openlibs();
+
+            lua.set("uuid", hlua::function0(gen_uuid));
+
+            match load_lua_scripts(&mut lua) {
+                Ok(_) => {}
+                Err(err) => panic!(err),
+            }
 
             while let Ok(state) = rx.recv() {
                 match Self::exec_function(&mut lua, state) {

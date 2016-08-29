@@ -127,28 +127,22 @@ pub struct Unit {
 }
 
 impl Unit {
-    fn new(role: UnitRole,
-           x: f64,
-           y: f64,
-           team: usize,
-           width: f64,
-           speed: f64,
-           state: UnitState)
-           -> Unit {
-        let color = match role {
+    pub fn new(role: UnitRole, id: Id, x: f64, y: f64, team: usize, state: UnitState) -> Unit {
+        let (width, speed, color) = match role {
             UnitRole::Soldier => {
-                if team == 1 {
+                let color = if team == 1 {
                     BLUE
                 } else {
                     PURPLE
-                }
+                };
+                (25.0, 150.0, color)
             }
-            UnitRole::General => RED,
-            UnitRole::Bullet => BLACK,
+            UnitRole::General => (50.0, 50.0, RED),
+            UnitRole::Bullet => (5.0, 150.0, BLACK),
         };
 
         Unit {
-            id: Uuid::new_v4(),
+            id: id,
             team: team,
             color: color,
             x: x,
@@ -161,18 +155,6 @@ impl Unit {
             state: state,
             state_queue: Vec::new(),
         }
-    }
-
-    pub fn new_general(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
-        Self::new(UnitRole::General, x, y, team, 50.0, 50.0, state)
-    }
-
-    pub fn new_soldier(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
-        Self::new(UnitRole::Soldier, x, y, team, 25.0, 150.0, state)
-    }
-
-    pub fn new_bullet(x: f64, y: f64, team: usize, state: UnitState) -> Unit {
-        Self::new(UnitRole::Bullet, x, y, team, 5.0, 150.0, state)
     }
 
     pub fn update(&mut self, args: &UpdateArgs, views: &HashMap<Id, (f64, f64)>) -> Vec<Unit> {
@@ -214,10 +196,13 @@ impl Unit {
                     if self.can_see_point(x, y) {
                         let (xdelta, ydelta) = self.move_towards(x, y, self.width + 10.0);
                         self.state = self.next_state();
-                        vec![Unit::new_bullet(self.x + xdelta,
-                                              self.y + ydelta,
-                                              self.team,
-                                              UnitState::Move(x, y))]
+                        vec![Unit::new(
+                            UnitRole::Bullet,
+                            Id::new_v4(),
+                            self.x + xdelta,
+                            self.y + ydelta,
+                            self.team,
+                            UnitState::Move(x, y))]
                     } else {
                         self.move_self_towards(x, y, args.dt);
                         vec![]

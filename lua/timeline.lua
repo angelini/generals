@@ -34,14 +34,22 @@ function timeline ()
       deltas_at_0[i] = new_soldier(team_1[i], x, y, 1)
 
       team_2[i] = uuid()
-      deltas_at_0[i + 5] = new_soldier(team_2[i], x, y + 200, 2)
+      deltas_at_0[i + 5] = new_soldier(team_2[i], x, y + 300, 2)
    end
 
    local timeline = {
       [0] = deltas_at_0,
-      [20] = {
+      [5] = {
+         random_move_by_id(team_1[1]),
+         random_move_by_id(team_2[1]),
          random_move_by_id(team_1[2]),
-         random_move_by_id(team_2[3])
+         random_move_by_id(team_2[2]),
+         random_move_by_id(team_1[3]),
+         random_move_by_id(team_2[3]),
+         random_move_by_id(team_1[4]),
+         random_move_by_id(team_2[4]),
+         random_move_by_id(team_1[5]),
+         random_move_by_id(team_2[5])
       }
    }
 
