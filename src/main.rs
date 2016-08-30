@@ -218,11 +218,18 @@ impl State {
     fn apply_delta(&mut self, delta: Delta) {
         match delta {
             Delta::UpdateState(id, state) => {
-                let mut unit = self.units.get_mut(&id).unwrap();
-                if unit.state != UnitState::Dead {
-                    info!(target: "deltas",
-                          "- {:?} {:?} -> {:?}", unit.role, unit.state, state);
-                    unit.state = state;
+                match self.units.get_mut(&id) {
+                    Some(unit) => {
+                        if unit.state != UnitState::Dead {
+                            info!(target: "deltas",
+                                  "- {:?} {:?} -> {:?}", unit.role, unit.state, state);
+                            unit.state = state;
+                        }
+                    }
+                    None => {
+                        info!(target: "deltas",
+                                  "missing unit {}", id)
+                    }
                 }
             }
             Delta::NewUnit(role, id, x, y, rotation, team) => {
@@ -243,7 +250,7 @@ fn draw_units(window: &mut PistonWindow, event: Event, args: &RenderArgs, state:
 
 fn main() {
     env_logger::init().unwrap();
-    let mut window: PistonWindow = WindowSettings::new("example", [400, 400])
+    let mut window: PistonWindow = WindowSettings::new("example", [800, 800])
         .exit_on_esc(true)
         .build()
         .unwrap();
