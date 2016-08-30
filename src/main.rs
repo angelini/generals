@@ -54,6 +54,7 @@ impl State {
 
     fn update(&mut self, args: &UpdateArgs) -> Result<(), Error> {
         let time_start = time::precise_time_ns();
+        let mut changed = vec![];
 
         try!(self.run_all_unit_updates(args));
         try!(self.run_all_collisions());
@@ -61,7 +62,11 @@ impl State {
 
         loop {
             match self.delta_rx.try_recv() {
-                Ok(delta) => self.apply_delta(delta),
+                Ok(delta) => {
+                    if let Some(id) = self.apply_delta(delta) {
+                        changed.push(id)
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => panic!("delta_rx disconnected"),
             }
@@ -80,6 +85,12 @@ impl State {
 
         for dead_unit in dead_units {
             self.units.remove(&dead_unit);
+        }
+
+        for id in changed {
+            if let Some(unit) = self.units.get(&id) {
+                try!(self.interpreter.exec(&unit.role, &EventType::StateChange, unit, None))
+            }
         }
 
         let run_time = (time::precise_time_ns() - time_start) as f64 / BILLION as f64;
@@ -215,25 +226,30 @@ impl State {
             .collect()
     }
 
-    fn apply_delta(&mut self, delta: Delta) {
+    fn apply_delta(&mut self, delta: Delta) -> Option<Id> {
         match delta {
             Delta::UpdateState(id, state) => {
                 match self.units.get_mut(&id) {
                     Some(unit) => {
-                        if unit.state != UnitState::Dead {
+                        if unit.state != UnitState::Dead && unit.state != state {
                             info!(target: "deltas",
                                   "- {:?} {:?} -> {:?}", unit.role, unit.state, state);
                             unit.state = state;
+                            Some(id)
+                        } else {
+                            None
                         }
                     }
                     None => {
                         info!(target: "deltas",
-                                  "missing unit {}", id)
+                              "missing unit {}", id);
+                        None
                     }
                 }
             }
             Delta::NewUnit(role, id, x, y, rotation, team) => {
                 self.add_unit(Unit::new(role, id, x, y, rotation, team, UnitState::Idle));
+                None
             }
         }
     }
