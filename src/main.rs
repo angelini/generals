@@ -225,8 +225,8 @@ impl State {
                     unit.state = state;
                 }
             }
-            Delta::NewUnit(role, id, x, y, team) => {
-                self.add_unit(Unit::new(role, id, x, y, team, UnitState::Idle));
+            Delta::NewUnit(role, id, x, y, rotation, team) => {
+                self.add_unit(Unit::new(role, id, x, y, rotation, team, UnitState::Idle));
             }
         }
     }

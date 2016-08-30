@@ -127,7 +127,14 @@ pub struct Unit {
 }
 
 impl Unit {
-    pub fn new(role: UnitRole, id: Id, x: f64, y: f64, team: usize, state: UnitState) -> Unit {
+    pub fn new(role: UnitRole,
+               id: Id,
+               x: f64,
+               y: f64,
+               rotation: f64,
+               team: usize,
+               state: UnitState)
+               -> Unit {
         let (width, speed, color) = match role {
             UnitRole::Soldier => {
                 let color = if team == 1 {
@@ -149,7 +156,7 @@ impl Unit {
             y: y,
             width: width,
             speed: speed,
-            rotation: 0.0,
+            rotation: rotation,
             shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
             state: state,
@@ -201,6 +208,7 @@ impl Unit {
                             Id::new_v4(),
                             self.x + xdelta,
                             self.y + ydelta,
+                            0.0,
                             self.team,
                             UnitState::Move(x, y))]
                     } else {

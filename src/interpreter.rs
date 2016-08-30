@@ -32,13 +32,7 @@ impl ToString for EventType {
 #[derive(Debug)]
 pub enum Delta {
     UpdateState(Id, UnitState),
-    NewUnit(UnitRole, Id, f64, f64, usize),
-}
-
-impl Delta {
-    fn new(id: Id, state: UnitState) -> Delta {
-        Delta::UpdateState(id, state)
-    }
+    NewUnit(UnitRole, Id, f64, f64, f64, usize),
 }
 
 impl FromStr for Delta {
@@ -55,6 +49,8 @@ impl FromStr for Delta {
             r", ",
             r"(?P<y>\d+.\d+)",
             r", ",
+            r"(?P<rotation>\d+.\d+)",
+            r", ",
             r"(?P<team>\d+)",
             r"\)"))
             .unwrap();
@@ -63,13 +59,14 @@ impl FromStr for Delta {
                 "soldier" => UnitRole::Soldier,
                 "general" => UnitRole::General,
                 "bullet" => UnitRole::Bullet,
-                _ => panic!("invalid regex state")
+                _ => panic!("invalid regex state"),
             };
             let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
             let x = f64::from_str(caps.name("x").unwrap()).unwrap();
             let y = f64::from_str(caps.name("y").unwrap()).unwrap();
+            let rotation = f64::from_str(caps.name("rotation").unwrap()).unwrap();
             let team = usize::from_str(caps.name("team").unwrap()).unwrap();
-            return Ok(Delta::NewUnit(role, id, x, y, team));
+            return Ok(Delta::NewUnit(role, id, x, y, rotation, team));
         };
 
         let re = Regex::new(concat!(
@@ -212,7 +209,7 @@ impl Interpreter {
 
             let timeline = match Self::generate_timeline(&mut lua) {
                 Ok(events) => events,
-                Err(err) => panic!(err)
+                Err(err) => panic!(err),
             };
             info!(target: "timeline", "{:?}", timeline);
 
@@ -295,7 +292,7 @@ impl Interpreter {
         match UnitState::from_str(&new_state) {
             Ok(state) => {
                 if state != self_unit.state {
-                    Ok(Some(Delta::new(self_unit.id, state)))
+                    Ok(Some(Delta::UpdateState(self_unit.id, state)))
                 } else {
                     Ok(None)
                 }

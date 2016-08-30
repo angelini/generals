@@ -1,5 +1,5 @@
-function new_soldier (id, x, y, team)
-   return string.format("new_unit(soldier, %s, %f, %f, %d)", id, x, y, team)
+function new_soldier (id, x, y, rotation, team)
+   return string.format("new_unit(soldier, %s, %f, %f, %f, %d)", id, x, y, rotation, team)
 end
 
 function random_move_by_id (id)
