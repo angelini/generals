@@ -3,6 +3,12 @@ function is_shooting(state)
    return prefix == "shoot"
 end
 
+function soldier_on_state_change (self)
+   if self["state"] == "idle" then
+      return random_move()
+   end
+end
+
 function soldier_on_collision (self, other)
    if other["role"] == "bullet" then
       return "dead"
