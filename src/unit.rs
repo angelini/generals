@@ -195,7 +195,10 @@ impl Unit {
             UnitState::Shoot(id) => {
                 let &(x, y) = match views.get(&id) {
                     Some(xy) => xy,
-                    None => return vec![],
+                    None => {
+                        self.state = self.next_state();
+                        return vec![]
+                    },
                 };
                 let rotated = self.rotate_self_towards(x, y, args.dt);
 
