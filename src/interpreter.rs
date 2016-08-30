@@ -274,19 +274,14 @@ impl Interpreter {
         match other_unit {
             Some(other) => {
                 Self::set_unit(lua, "__other", &other);
-                try!(lua.execute(&format!("{}(__self, __other)", function)));
+                try!(lua.execute(&format!("__result = {}(__self, __other)", function)));
             }
-            None => try!(lua.execute(&format!("{}(__self)", function))),
+            None => try!(lua.execute(&format!("__result = {}(__self)", function))),
         }
 
-        let mut new_self: LuaTable<_> = match lua.get("__self") {
-            Some(table) => table,
-            None => return Err(Error::LuaIndexNotFound("__self".to_string())),
-        };
-
-        let new_state: String = match new_self.get("state") {
+        let new_state: String = match lua.get("__result") {
             Some(state) => state,
-            None => return Err(Error::LuaIndexNotFound("__self.state".to_string())),
+            None => return Ok(None),
         };
 
         match UnitState::from_str(&new_state) {

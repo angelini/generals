@@ -1,9 +1,9 @@
 function bullet_on_state_change (self)
    if self["state"] == "idle" then
-      self["state"] = "dead"
+      return "dead"
    end
 end
 
 function bullet_on_collision (self, other)
-   self["state"] = "dead"
+   return "dead"
 end

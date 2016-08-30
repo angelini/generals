@@ -5,14 +5,14 @@ end
 
 function soldier_on_collision (self, other)
    if other["role"] == "bullet" then
-      self["state"] = "dead"
+      return "dead"
    end
 end
 
 function soldier_on_enter_view (self, other)
    if self["team"] ~= other["team"] and other["role"] == "soldier" then
       if not is_shooting(self["state"]) then
-         self["state"] = string.format("shoot(%s)", other["id"])
+         return string.format("shoot(%s)", other["id"])
       end
    end
 end
