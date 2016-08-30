@@ -172,7 +172,7 @@ impl Unit {
                 if moved {
                     let original_state = self.state;
                     self.state = self.next_state();
-                    info!(target: "unit-state",
+                    info!(target: "units",
                         "{:?} {:?} -> {:?}", self.role, original_state, self.state);
                 }
                 vec![]
@@ -184,7 +184,7 @@ impl Unit {
                     if self.can_see_point(x, y) {
                         let original_state = self.state;
                         self.state = self.next_state();
-                        info!(target: "unit-state",
+                        info!(target: "units",
                             "{:?} {:?} -> {:?}", self.role, original_state, self.state);
                     } else {
                         self.move_self_towards(x, y, args.dt);

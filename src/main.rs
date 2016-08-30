@@ -100,6 +100,14 @@ impl State {
             info!(target: "timing", ".");
         }
 
+        if time_start % 1000 == 0 {
+            info!(target: "units", "---");
+            for unit in self.units.values() {
+                info!(target: "units", "{} {:?} {:?}", unit.id, unit.role, unit.state);
+            }
+            info!(target: "units", "---");
+        }
+
         Ok(())
     }
 
