@@ -197,21 +197,13 @@ impl Interpreter {
         let delta_tx_cloned = delta_tx.clone();
 
         thread::spawn(move || {
-            let mut lua = Lua::new();
-            lua.openlibs();
+            let mut lua = Self::new_lua_instance();
 
-            lua.set("uuid", hlua::function0(gen_uuid));
-
-            match load_lua_scripts(&mut lua) {
-                Ok(_) => {}
-                Err(err) => panic!(err),
-            }
-
-            let timeline = match Self::generate_timeline(&mut lua) {
+            let mut timeline = match Self::generate_timeline(&mut lua) {
                 Ok(events) => events,
                 Err(err) => panic!(err),
             };
-            info!(target: "timeline", "{:?}", timeline);
+            timeline.sort_by(|l, r| l.time.cmp(&r.time));
 
             let mut current_time = 0;
             for event in timeline {
@@ -228,15 +220,7 @@ impl Interpreter {
         });
 
         thread::spawn(move || {
-            let mut lua = Lua::new();
-            lua.openlibs();
-
-            lua.set("uuid", hlua::function0(gen_uuid));
-
-            match load_lua_scripts(&mut lua) {
-                Ok(_) => {}
-                Err(err) => panic!(err),
-            }
+            let mut lua = Self::new_lua_instance();
 
             while let Ok(state) = rx.recv() {
                 match Self::exec_function(&mut lua, state) {
@@ -313,6 +297,16 @@ impl Interpreter {
             .map(|(_, v): (u32, String)| TimelineEvent::from_str(&v).unwrap())
             .collect::<Vec<TimelineEvent>>();
         Ok(result)
+    }
+
+    fn new_lua_instance<'a>() -> Lua<'a> {
+        let mut lua = Lua::new();
+        lua.openlibs();
+        lua.set("uuid", hlua::function0(gen_uuid));
+        match load_lua_scripts(&mut lua) {
+            Ok(_) => lua,
+            Err(err) => panic!(err),
+        }
     }
 
     fn set_unit(lua: &mut Lua, index: &str, unit: &UnitSnapshot) {
