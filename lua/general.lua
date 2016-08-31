@@ -1,6 +1,6 @@
 function general_on_state_change (self)
    if self["state"] == "idle" then
-      return random_move()
+      return move_to_random()
    end
 end
 

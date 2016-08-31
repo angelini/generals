@@ -301,7 +301,7 @@ impl Interpreter {
             return Ok(vec![]);
         }
 
-        try!(lua.execute("__timeline = timeline()"));
+        try!(lua.execute("__timeline = __flatten_timeline(timeline())"));
 
         let mut timeline: LuaTable<_> = match lua.get("__timeline") {
             Some(table) => table,

@@ -1,57 +1,29 @@
-function new_soldier (id, x, y, rotation, team)
-   return string.format("new_unit(soldier, %s, %f, %f, %f, %d)", id, x, y, rotation, team)
-end
-
-function random_move_by_id (id)
-   return string.format("update_state(%s, %s)", id, random_move())
-end
-
-function flatten_timeline (timeline)
-   local flat = {}
-   local i = 1
-
-   for time, deltas in pairs(timeline) do
-      for _, delta in ipairs(deltas) do
-         flat[i] = string.format("(%d, %s)", time, delta)
-         i = i + 1
-      end
-   end
-
-   return flat
-end
-
 function timeline ()
-   local team_1 = {}
-   local team_2 = {}
-
    local deltas_at_0 = {}
+   local deltas_at_2 = {}
+   local deltas_at_4 = {}
 
    for i=1, 5 do
       local x = 150 * i
       local y = 50
 
-      team_1[i] = uuid()
-      deltas_at_0[i] = new_soldier(team_1[i], x, y, 3.1415, 1)
-
-      team_2[i] = uuid()
-      deltas_at_0[i + 5] = new_soldier(team_2[i], x, y + 700, 0, 2)
+      id = uuid()
+      deltas_at_0[i] = new_soldier(id, x, y, 3.1415, 1)
+      deltas_at_2[i] = update_state(id, move_to_random())
    end
 
-   local timeline = {
-      [0] = deltas_at_0,
-      [2] = {
-         random_move_by_id(team_1[1]),
-         random_move_by_id(team_2[1]),
-         random_move_by_id(team_1[2]),
-         random_move_by_id(team_2[2]),
-         random_move_by_id(team_1[3]),
-         random_move_by_id(team_2[3]),
-         random_move_by_id(team_1[4]),
-         random_move_by_id(team_2[4]),
-         random_move_by_id(team_1[5]),
-         random_move_by_id(team_2[5])
-      }
-   }
+   for i=6, 10 do
+      local x = 150 * (i - 5)
+      local y = 750
 
-   return flatten_timeline(timeline)
+      id = uuid()
+      deltas_at_0[i] = new_soldier(id, x, y, 0, 2)
+      deltas_at_4[i - 5] = update_state(id, move_to_random())
+   end
+
+   return {
+      [0] = deltas_at_0,
+      [2] = deltas_at_2,
+      [4] = deltas_at_4
+   }
 end
