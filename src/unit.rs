@@ -2,11 +2,12 @@ use nalgebra::{Isometry2, Point2, Vector1, Vector2};
 use ncollide::query::{self, PointQuery, Proximity};
 use ncollide::shape::{ConvexHull, Cuboid};
 use piston_window::*;
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::str::FromStr;
 use uuid::Uuid;
+
+use parser::{self, TokenType};
 
 pub type Color = [f32; 4];
 pub type Id = Uuid;
@@ -71,42 +72,32 @@ impl ToString for UnitState {
 }
 
 impl FromStr for UnitState {
-    type Err = String;
+    type Err = parser::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == "dead" {
-            return Ok(UnitState::Dead);
+        match parser::read_symbol(s) {
+            Ok(("dead", _)) => return Ok(UnitState::Dead),
+            Ok(("idle", _)) => return Ok(UnitState::Idle),
+            _ => {}
         }
 
-        if s == "idle" {
-            return Ok(UnitState::Idle);
+        match parser::read_fn(s) {
+            Ok(("move", s)) => {
+                let (x, s) = try!(parser::read_float(s));
+                let (y, _) = try!(parser::read_float(s));
+                Ok(UnitState::Move(x, y))
+            }
+            Ok(("look", s)) => {
+                let (x, s) = try!(parser::read_float(s));
+                let (y, _) = try!(parser::read_float(s));
+                Ok(UnitState::Look(x, y))
+            }
+            Ok(("shoot", s)) => {
+                let (id, _) = try!(parser::read_id(s));
+                Ok(UnitState::Shoot(id))
+            }
+            _ => Err((String::from(s), TokenType::Other)),
         }
-
-        let re = Regex::new(r"move\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
-        if let Some(caps) = re.captures(s) {
-            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
-            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Move(x, y));
-        };
-
-        let re = Regex::new(r"look\((?P<x>\d+.\d+), (?P<y>\d+.\d+)\)").unwrap();
-        if let Some(caps) = re.captures(s) {
-            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
-            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            return Ok(UnitState::Look(x, y));
-        };
-
-        let re = Regex::new(concat!(
-            r"shoot\(",
-            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
-            r"\)"))
-            .unwrap();
-        if let Some(caps) = re.captures(s) {
-            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
-            return Ok(UnitState::Shoot(id));
-        };
-
-        Err(s.to_string())
     }
 }
 
@@ -197,8 +188,8 @@ impl Unit {
                     Some(xy) => xy,
                     None => {
                         self.state = self.next_state();
-                        return vec![]
-                    },
+                        return vec![];
+                    }
                 };
                 let rotated = self.rotate_self_towards(x, y, args.dt);
 

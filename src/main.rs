@@ -5,6 +5,8 @@
 extern crate env_logger;
 extern crate hlua;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 extern crate nalgebra;
 extern crate ncollide;
@@ -14,6 +16,7 @@ extern crate time;
 extern crate uuid;
 
 mod interpreter;
+mod parser;
 mod unit;
 
 use piston_window::*;

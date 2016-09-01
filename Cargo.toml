@@ -7,6 +7,7 @@ authors = ["Alex Angelini <alex.louis.angelini@gmail.com>"]
 clippy = "*"
 env_logger = "0.3"
 hlua = "0.1"
+lazy_static = "0.2"
 log = "0.3"
 nalgebra = "0.8.2"
 ncollide = "0.9.0"

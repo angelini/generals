@@ -1,5 +1,4 @@
 use hlua::{self, Lua, LuaTable};
-use regex::Regex;
 use std::fs;
 use std::io;
 use std::io::prelude::*;
@@ -8,105 +7,8 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time;
 
+use parser::{self, TokenType};
 use unit::{Id, Unit, UnitRole, UnitState};
-
-#[derive(Debug)]
-pub enum EventType {
-    Collision,
-    EnterView,
-    ExitView,
-    StateChange,
-}
-
-impl ToString for EventType {
-    fn to_string(&self) -> String {
-        match *self {
-            EventType::Collision => String::from("collision"),
-            EventType::EnterView => String::from("enter_view"),
-            EventType::ExitView => String::from("exit_view"),
-            EventType::StateChange => String::from("state_change"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum Delta {
-    UpdateState(Id, UnitState),
-    NewUnit(UnitRole, Id, f64, f64, f64, usize),
-}
-
-impl FromStr for Delta {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let re = Regex::new(concat!(
-            r"new_unit\(",
-            r"(?P<role>soldier|general|bullet)",
-            r", ",
-            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
-            r", ",
-            r"(?P<x>\d+.\d+)",
-            r", ",
-            r"(?P<y>\d+.\d+)",
-            r", ",
-            r"(?P<rotation>\d+.\d+)",
-            r", ",
-            r"(?P<team>\d+)",
-            r"\)"))
-            .unwrap();
-        if let Some(caps) = re.captures(s) {
-            let role = match caps.name("role").unwrap() {
-                "soldier" => UnitRole::Soldier,
-                "general" => UnitRole::General,
-                "bullet" => UnitRole::Bullet,
-                _ => panic!("invalid regex state"),
-            };
-            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
-            let x = f64::from_str(caps.name("x").unwrap()).unwrap();
-            let y = f64::from_str(caps.name("y").unwrap()).unwrap();
-            let rotation = f64::from_str(caps.name("rotation").unwrap()).unwrap();
-            let team = usize::from_str(caps.name("team").unwrap()).unwrap();
-            return Ok(Delta::NewUnit(role, id, x, y, rotation, team));
-        };
-
-        let re = Regex::new(concat!(
-            r"update_state\(",
-            r"(?P<id>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
-            r", ",
-            r"(?P<state>.*)",
-            r"\)"))
-            .unwrap();
-        if let Some(caps) = re.captures(s) {
-            let id = Id::parse_str(caps.name("id").unwrap()).unwrap();
-            let state = UnitState::from_str(caps.name("state").unwrap()).unwrap();
-            return Ok(Delta::UpdateState(id, state));
-        };
-
-        Err(s.to_string())
-    }
-}
-
-pub struct UnitSnapshot {
-    id: Id,
-    x: f64,
-    y: f64,
-    team: usize,
-    role: UnitRole,
-    state: UnitState,
-}
-
-impl UnitSnapshot {
-    fn new(unit: &Unit) -> UnitSnapshot {
-        UnitSnapshot {
-            id: unit.id,
-            x: unit.x,
-            y: unit.y,
-            team: unit.team,
-            role: unit.role,
-            state: unit.state,
-        }
-    }
-}
 
 pub type ExecState = (String, UnitSnapshot, Option<UnitSnapshot>);
 
@@ -136,6 +38,85 @@ impl From<mpsc::SendError<ExecState>> for Error {
     }
 }
 
+#[derive(Debug)]
+pub enum EventType {
+    Collision,
+    EnterView,
+    ExitView,
+    StateChange,
+}
+
+impl ToString for EventType {
+    fn to_string(&self) -> String {
+        match *self {
+            EventType::Collision => String::from("collision"),
+            EventType::EnterView => String::from("enter_view"),
+            EventType::ExitView => String::from("exit_view"),
+            EventType::StateChange => String::from("state_change"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Delta {
+    UpdateState(Id, UnitState),
+    NewUnit(UnitRole, Id, f64, f64, f64, usize),
+}
+
+impl FromStr for Delta {
+    type Err = parser::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match parser::read_fn(s) {
+            Ok(("new_unit", s)) => {
+                let (role, s) = try!(parser::read_symbol(s));
+                let (id, s) = try!(parser::read_id(s));
+                let (x, s) = try!(parser::read_float(s));
+                let (y, s) = try!(parser::read_float(s));
+                let (rotation, s) = try!(parser::read_float(s));
+                let (team, _) = try!(parser::read_int(s));
+
+                match UnitRole::from_str(role) {
+                    Ok(r) => Ok(Delta::NewUnit(r, id, x, y, rotation, team)),
+                    Err(string) => Err((string, TokenType::Other)),
+                }
+            }
+            Ok(("update_state", s)) => {
+                let (id, s) = try!(parser::read_id(s));
+                let (state, _) = try!(parser::read_rest(s));
+
+                match UnitState::from_str(state) {
+                    Ok(s) => Ok(Delta::UpdateState(id, s)),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Err((String::from(s), TokenType::Other)),
+        }
+    }
+}
+
+pub struct UnitSnapshot {
+    id: Id,
+    x: f64,
+    y: f64,
+    team: usize,
+    role: UnitRole,
+    state: UnitState,
+}
+
+impl UnitSnapshot {
+    fn new(unit: &Unit) -> UnitSnapshot {
+        UnitSnapshot {
+            id: unit.id,
+            x: unit.x,
+            y: unit.y,
+            team: unit.team,
+            role: unit.role,
+            state: unit.state,
+        }
+    }
+}
+
 fn read_dir(dir: &str) -> Result<Vec<String>, io::Error> {
     try!(fs::read_dir(dir))
         .map(|dir| dir.unwrap().path())
@@ -161,25 +142,30 @@ fn gen_uuid() -> String {
 
 #[derive(Debug)]
 struct TimelineEvent {
-    time: u32,
+    time: usize,
     delta: Delta,
 }
 
 impl FromStr for TimelineEvent {
-    type Err = String;
+    type Err = parser::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let re = Regex::new(r"\((?P<time>\d+), (?P<delta>.*)\)").unwrap();
-        match re.captures(s) {
-            Some(caps) => {
-                let time = u32::from_str(caps.name("time").unwrap()).unwrap();
-                let delta = Delta::from_str(caps.name("delta").unwrap()).unwrap();
-                Ok(TimelineEvent {
-                    time: time,
-                    delta: delta,
-                })
+        match parser::read_tuple(s) {
+            Ok(s) => {
+                let (time, s) = try!(parser::read_int(s));
+                let (delta, _) = try!(parser::read_rest(s));
+
+                match Delta::from_str(delta) {
+                    Ok(d) => {
+                        Ok(TimelineEvent {
+                            time: time,
+                            delta: d,
+                        })
+                    }
+                    Err(e) => Err(e),
+                }
             }
-            None => Err(s.to_string()),
+            _ => Err((String::from(s), TokenType::Other)),
         }
     }
 }
