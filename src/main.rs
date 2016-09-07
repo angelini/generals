@@ -25,8 +25,9 @@ use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
+use geometry::Pose;
 use interpreter::{Delta, Error, EventType, Interpreter};
-use unit::{GREEN, Id, Ids, Unit, UnitState};
+use unit::{GREEN, Id, Ids, Unit, UnitShape, UnitState};
 
 const BILLION: u64 = 1000000000;
 
@@ -124,11 +125,14 @@ impl State {
             .map(|u| {
                 let map = self.units
                     .keys()
-                    .map(|id| (*id, self.units.get(id).unwrap().xy()))
-                    .collect::<HashMap<Id, (f64, f64)>>();
+                    .map(|id| {
+                        let unit = self.units.get(id).unwrap();
+                        (*id, (unit.pose, unit.shape.clone()))
+                    })
+                    .collect::<HashMap<Id, (Pose, UnitShape)>>();
                 (u.id, map)
             })
-            .collect::<HashMap<Id, HashMap<Id, (f64, f64)>>>();
+            .collect::<HashMap<Id, HashMap<Id, (Pose, UnitShape)>>>();
 
         for unit in self.units.values_mut() {
             let original_state = unit.state;

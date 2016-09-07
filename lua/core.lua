@@ -1,3 +1,5 @@
+math.randomseed(os.time())
+
 function move (x, y)
    return string.format("move(%f, %f)", x, y)
 end

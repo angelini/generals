@@ -14,12 +14,15 @@ pub type Color = [f32; 4];
 pub type Id = Uuid;
 pub type Ids = HashSet<Id>;
 
+pub type UnitShape = Cuboid<Vector2<f64>>;
+
 pub const BLUE: Color = [0.0, 0.0, 1.0, 1.0];
 pub const PURPLE: Color = [0.5, 0.5, 1.0, 1.0];
 pub const GREEN: Color = [0.0, 1.0, 0.0, 1.0];
 pub const RED: Color = [1.0, 0.0, 0.0, 1.0];
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 pub const GRAY: Color = [0.0, 0.0, 0.0, 0.3];
+pub const LIGHT_GRAY: Color = [0.0, 0.0, 0.0, 0.1];
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum UnitRole {
@@ -107,10 +110,10 @@ pub struct Unit {
     pub id: Id,
     pub team: usize,
     color: Color,
-    pose: Pose,
+    pub pose: Pose,
     width: f64,
     speed: f64,
-    shape: Cuboid<Vector2<f64>>,
+    pub shape: UnitShape,
     pub role: UnitRole,
     pub state: UnitState,
     state_queue: Vec<UnitState>,
@@ -132,7 +135,7 @@ impl Unit {
                 } else {
                     PURPLE
                 };
-                (25.0, 150.0, color)
+                (25.0, 100.0, color)
             }
             UnitRole::General => (50.0, 50.0, RED),
             UnitRole::Bullet => (5.0, 150.0, BLACK),
@@ -145,7 +148,7 @@ impl Unit {
             pose: Pose::new(x, y, rotation),
             width: width,
             speed: speed,
-            shape: Cuboid::new(Vector2::new(width * 0.5, width * 0.5)),
+            shape: UnitShape::new(Vector2::new(width * 0.5, width * 0.5)),
             role: role,
             state: state,
             state_queue: Vec::new(),
@@ -153,7 +156,7 @@ impl Unit {
     }
 
     #[allow(float_cmp)]
-    pub fn update(&mut self, args: &UpdateArgs, views: &HashMap<Id, (f64, f64)>) -> Vec<Unit> {
+    pub fn update(&mut self, args: &UpdateArgs, views: &HashMap<Id, (Pose, UnitShape)>) -> Vec<Unit> {
         match self.state {
             UnitState::Move(x, y) => {
                 self.pose = self.pose.move_towards(x, y, self.speed * args.dt);
@@ -169,7 +172,7 @@ impl Unit {
             }
             UnitState::Look(x, y) => {
                 self.pose = self.pose
-                    .rotate_towards(x, y, args.dt)
+                    .rotate_towards(x, y, 1.2 * args.dt)
                     .move_towards(x, y, self.speed * args.dt);
 
                 if self.can_see_point(x, y) {
@@ -182,25 +185,31 @@ impl Unit {
                 vec![]
             }
             UnitState::Shoot(id) => {
-                let &(x, y) = match views.get(&id) {
-                    Some(xy) => xy,
+                let &(pose, ref shape) = match views.get(&id) {
+                    Some(tuple) => tuple,
                     None => {
                         self.state = self.next_state();
                         return vec![];
                     }
                 };
 
-                let pose = self.pose.move_towards(x, y, self.width + 10.0);
-                self.state = self.next_state();
-
-                vec![Unit::new(
-                    UnitRole::Bullet,
-                    Id::new_v4(),
-                    pose.x,
-                    pose.y,
-                    pose.rotation,
-                    self.team,
-                    UnitState::Move(x, y))]
+                if self.can_shoot(&pose, shape) {
+                    let bullet_pose = self.pose.move_towards(pose.x, pose.y, self.width);
+                    self.state = self.next_state();
+                    vec![Unit::new(
+                        UnitRole::Bullet,
+                        Id::new_v4(),
+                        bullet_pose.x,
+                        bullet_pose.y,
+                        bullet_pose.rotation,
+                        self.team,
+                        UnitState::Move(pose.x, pose.y))]
+                } else {
+                    self.pose = self.pose
+                        .rotate_towards(pose.x, pose.y, 1.2 * args.dt)
+                        .move_towards(pose.x, pose.y, self.speed * args.dt);
+                    vec![]
+                }
             }
             UnitState::Idle | _ => vec![],
         }
@@ -222,8 +231,13 @@ impl Unit {
         let nose = [half_width, -nose_width / 2.0, nose_width, nose_width];
         rectangle(self.color, nose, transform, g);
 
-        polygon(GRAY,
+        polygon(LIGHT_GRAY,
                 &[[0.0, 0.0], [150.0, 150.0], [150.0, -150.0]],
+                transform,
+                g);
+
+        polygon(GRAY,
+                &[[0.0, 0.0], [120.0, 60.0], [120.0, -60.0]],
                 transform,
                 g);
     }
@@ -250,11 +264,22 @@ impl Unit {
         }
     }
 
+    fn can_shoot(&self, pose: &Pose, shape: &UnitShape) -> bool {
+        match query::proximity(&self.pose.isometry(),
+                               &self.range(),
+                               &pose.isometry(),
+                               shape,
+                               0.0) {
+            Proximity::Intersecting => true,
+            Proximity::Disjoint | Proximity::WithinMargin => false,
+        }
+    }
+
     pub fn xy(&self) -> (f64, f64) {
         (self.pose.x, self.pose.y)
     }
 
-    pub fn can_see_point(&self, x: f64, y: f64) -> bool {
+    fn can_see_point(&self, x: f64, y: f64) -> bool {
         self.fov().contains_point(&self.pose.isometry(), &Point2::new(x, y))
     }
 
@@ -262,6 +287,12 @@ impl Unit {
         ConvexHull::new(vec![Point2::new(0.0, 0.0),
                              Point2::new(150.0, 150.0),
                              Point2::new(150.0, -150.0)])
+    }
+
+    fn range(&self) -> ConvexHull<Point2<f64>> {
+        ConvexHull::new(vec![Point2::new(0.0, 0.0),
+                             Point2::new(120.0, 60.0),
+                             Point2::new(120.0, -60.0)])
     }
 
     fn next_state(&mut self) -> UnitState {

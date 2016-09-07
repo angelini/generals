@@ -4,9 +4,8 @@ use std::f64;
 pub const SCENE_SIZE: [u32; 2] = [800, 800];
 const PI: f64 = f64::consts::PI;
 const TWO_PI: f64 = f64::consts::PI * 2.0;
-const HALF_PI: f64 = f64::consts::PI * 0.5;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pose {
     pub x: f64,
     pub y: f64,
@@ -52,7 +51,7 @@ impl Pose {
         let dx = x - self.x;
         let dy = y - self.y;
 
-        let mut dest_rotation = (dy.atan2(dx) + HALF_PI) % TWO_PI;
+        let mut dest_rotation = dy.atan2(dx) % TWO_PI;
         let curr_rotation = self.rotation % (TWO_PI);
 
         if dest_rotation < 0.0 {
