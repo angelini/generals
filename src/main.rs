@@ -15,6 +15,7 @@ extern crate regex;
 extern crate time;
 extern crate uuid;
 
+mod geometry;
 mod interpreter;
 mod parser;
 mod unit;
@@ -277,7 +278,7 @@ fn draw_units(window: &mut PistonWindow, event: Event, args: &RenderArgs, state:
 
 fn main() {
     env_logger::init().unwrap();
-    let mut window: PistonWindow = WindowSettings::new("example", [800, 800])
+    let mut window: PistonWindow = WindowSettings::new("example", geometry::SCENE_SIZE)
         .exit_on_esc(true)
         .build()
         .unwrap();

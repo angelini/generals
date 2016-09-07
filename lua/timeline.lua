@@ -8,7 +8,7 @@ function timeline ()
       local y = 50
 
       id = uuid()
-      deltas_at_0[i] = new_soldier(id, x, y, 3.1415, 1)
+      deltas_at_0[i] = new_soldier(id, x, y, 1.57, 1)
       deltas_at_2[i] = update_state(id, move_to_random())
    end
 
@@ -17,7 +17,7 @@ function timeline ()
       local y = 750
 
       id = uuid()
-      deltas_at_0[i] = new_soldier(id, x, y, 0, 2)
+      deltas_at_0[i] = new_soldier(id, x, y, 4.71, 2)
       deltas_at_4[i - 5] = update_state(id, move_to_random())
    end
 

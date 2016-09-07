@@ -106,10 +106,11 @@ pub struct UnitSnapshot {
 
 impl UnitSnapshot {
     fn new(unit: &Unit) -> UnitSnapshot {
+        let (x, y) = unit.xy();
         UnitSnapshot {
             id: unit.id,
-            x: unit.x,
-            y: unit.y,
+            x: x,
+            y: y,
             team: unit.team,
             role: unit.role,
             state: unit.state,
