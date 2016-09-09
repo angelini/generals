@@ -178,7 +178,7 @@ impl Unit {
                 };
                 (25.0, 100.0, color)
             }
-            UnitRole::General => (50.0, 50.0, RED),
+            UnitRole::General => (50.0, 100.0, RED),
             UnitRole::Bullet => (5.0, 150.0, BLACK),
         };
 

@@ -11,7 +11,9 @@ function general_on_collision (self, other)
 end
 
 function general_on_enter_view (self, other)
-   if self["team"] == other["team"] and other["role"] == "soldier" then
+   if self["team"] == other["team"] and
+      other["role"] == "soldier" and
+      other["state"] == "idle" then
       return command(other["id"], move_to_random())
    end
 end
