@@ -7,6 +7,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time;
 
+use geometry::SCENE_SIZE;
 use parser::{self, TokenType};
 use unit::{Id, Unit, UnitRole, UnitState};
 
@@ -289,7 +290,11 @@ impl Interpreter {
     fn new_lua_instance<'a>() -> Lua<'a> {
         let mut lua = Lua::new();
         lua.openlibs();
+
         lua.set("uuid", hlua::function0(gen_uuid));
+        lua.set("SCENE_WIDTH", SCENE_SIZE[0]);
+        lua.set("SCENE_HEIGHT", SCENE_SIZE[1]);
+
         match load_lua_scripts(&mut lua) {
             Ok(_) => lua,
             Err(err) => panic!(err),

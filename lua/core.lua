@@ -5,7 +5,7 @@ function move (x, y)
 end
 
 function move_to_random ()
-   return move(math.random(400), math.random(400))
+   return move(math.random(SCENE_WIDTH), math.random(SCENE_HEIGHT))
 end
 
 function command (id, state)
