@@ -25,9 +25,8 @@ use std::collections::{HashMap, HashSet};
 use std::f64;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use geometry::Pose;
 use interpreter::{Delta, Error, EventType, Interpreter};
-use unit::{GREEN, Id, Ids, Unit, UnitShape, UnitState};
+use unit::{GREEN, Id, Ids, Unit, UnitState, Views};
 
 const BILLION: u64 = 1000000000;
 
@@ -118,6 +117,7 @@ impl State {
 
     fn run_all_unit_updates(&mut self, args: &UpdateArgs) -> Result<(), Error> {
         let mut changed = HashSet::new();
+        let mut commands = HashMap::new();
         let mut new_units = vec![];
 
         let views = self.units
@@ -129,19 +129,32 @@ impl State {
                         let unit = self.units.get(id).unwrap();
                         (*id, (unit.pose, unit.shape.clone()))
                     })
-                    .collect::<HashMap<Id, (Pose, UnitShape)>>();
+                    .collect::<Views>();
                 (u.id, map)
             })
-            .collect::<HashMap<Id, HashMap<Id, (Pose, UnitShape)>>>();
+            .collect::<HashMap<Id, Views>>();
 
         for unit in self.units.values_mut() {
-            let original_state = unit.state;
-            let view = views.get(&unit.id);
-            let mut new_units_chunk = unit.update(args, view.unwrap());
+            let original_state = unit.state.clone();
+            let view = views.get(&unit.id).unwrap();
 
-            new_units.append(&mut new_units_chunk);
+            let update_results = unit.update(args, view);
+
+            if let Some((id, state)) = update_results.command {
+                commands.insert(id, state);
+            }
+            if let Some(unit) = update_results.unit {
+                new_units.push(unit)
+            }
 
             if unit.state != original_state {
+                changed.insert(unit.id);
+            }
+        }
+
+        for unit in self.units.values_mut() {
+            if let Some(state) = commands.remove(&unit.id) {
+                unit.state = state;
                 changed.insert(unit.id);
             }
         }

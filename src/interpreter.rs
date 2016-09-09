@@ -113,7 +113,7 @@ impl UnitSnapshot {
             y: y,
             team: unit.team,
             role: unit.role,
-            state: unit.state,
+            state: unit.state.clone(),
         }
     }
 }

@@ -8,6 +8,10 @@ function move_to_random ()
    return move(math.random(400), math.random(400))
 end
 
+function command (id, state)
+   return string.format("command(%s, %state)", id, state)
+end
+
 function shoot (id)
    return string.format("shoot(%s)", id)
 end
@@ -19,6 +23,10 @@ end
 
 function new_soldier (id, x, y, rotation, team)
    return string.format("new_unit(soldier, %s, %f, %f, %f, %d)", id, x, y, rotation, team)
+end
+
+function new_general (id, x, y, rotation, team)
+   return string.format("new_unit(general, %s, %f, %f, %f, %d)", id, x, y, rotation, team)
 end
 
 function update_state (id, state)
